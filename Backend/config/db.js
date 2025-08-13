@@ -1,4 +1,3 @@
-// server/config/db.js
 import dotenv from 'dotenv';
 import mysql from 'mysql2';
 
@@ -8,7 +7,7 @@ const pool = mysql.createPool({
   host: process.env.DB_HOST || '127.0.0.1',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASS || '',
-  database: process.env.DB_NAME || 'studentdb',
+  database: process.env.DB_NAME || 'vizionexl_db',
   waitForConnections: true,
   connectionLimit: parseInt(process.env.DB_CONN_LIMIT, 10) || 10,
   queueLimit: 0,
@@ -16,12 +15,12 @@ const pool = mysql.createPool({
 
 const db = pool.promise();
 
-// Test connection once at startup
+// Test connection at startup
 (async () => {
   try {
     const conn = await db.getConnection();
     console.log(
-      `✅ Connected to MySQL database: ${process.env.DB_NAME || 'studentdb'}`
+      `✅ Connected to MySQL database: ${process.env.DB_NAME || 'vizionexl_db'}`
     );
     conn.release();
   } catch (err) {
@@ -30,11 +29,10 @@ const db = pool.promise();
       code: err.code,
       sqlMessage: err.sqlMessage || 'N/A',
     });
-    // don't process.exit(1) in dev; let server handle but log loudly
   }
 })();
 
-// Optional pool error handling
+// Pool error handling
 pool.on('error', (err) => {
   console.error('MySQL pool error:', {
     message: err.message,

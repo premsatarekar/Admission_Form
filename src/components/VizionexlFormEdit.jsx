@@ -1,8 +1,27 @@
-// src/components/VizionexlFormEdit.jsx
 import axios from 'axios';
 import { useEffect, useState } from 'react';
-import { FaArrowLeft, FaSave } from 'react-icons/fa';
+import {
+  FaArrowLeft,
+  FaBook,
+  FaCalendarAlt,
+  FaClock,
+  FaEnvelope,
+  FaFileAlt,
+  FaHome,
+  FaIdCard,
+  FaMobileAlt,
+  FaMoneyBillWave,
+  FaPercent,
+  FaPhone,
+  FaPlus,
+  FaRegIdCard,
+  FaTrash,
+  FaUser,
+} from 'react-icons/fa';
 import { useNavigate, useParams } from 'react-router-dom';
+import { toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
+import vizionexlLogo from '../assets/vizionexlLogo.png';
 
 const BASE_URL = import.meta.env.VITE_BASE_URL || 'http://localhost:5000/api';
 
@@ -10,19 +29,28 @@ export default function VizionexlFormEdit() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const [formData, setFormData] = useState({
+  const [form, setForm] = useState({
     date: '',
     name: '',
     mobile: '',
-    idNumber: '',
+    email: '',
+    address: '',
     idType: 'Aadhar',
+    idNumber: '',
     course: '',
-    feesPaid: '',
-    handedTo: 'Rohan',
     discount: '',
+    handedTo: 'Rohan',
+    remarks: '',
+    paymentMode: 'Cash',
+    upiTransactionId: '',
+    upiPaidTo: 'Rohan',
+    chequeNumber: '',
+    bankName: '',
+    duration: '',
+    durationUnit: 'months',
   });
-
   const [courses, setCourses] = useState([]);
+  const [installments, setInstallments] = useState([]);
   const [calcs, setCalcs] = useState({
     courseFee: 0,
     discountAmount: 0,
@@ -30,30 +58,35 @@ export default function VizionexlFormEdit() {
     sgst: 0,
     cgst: 0,
     totalWithGst: 0,
+    feesPaid: 0,
     feesRemaining: 0,
   });
-
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [needsRecalculation, setNeedsRecalculation] = useState(false);
 
-  // set today's date (IST) if record doesn't have date
-  useEffect(() => {
-    const now = new Date();
-    const ist = new Date(
-      now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })
-    );
-    const dd = String(ist.getDate()).padStart(2, '0');
-    const mm = String(ist.getMonth() + 1).padStart(2, '0');
-    const yyyy = ist.getFullYear();
-    setFormData((p) => ({ ...p, date: p.date || `${dd}/${mm}/${yyyy}` }));
-  }, []);
+  const getTodayISO = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
 
-  // fetch courses + admission
+  const formatINR = (val) => {
+    const num = parseFloat(val);
+    if (isNaN(num)) return '₹0.00';
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(num);
+  };
+
   useEffect(() => {
-    let mounted = true;
-    const fetchAll = async () => {
+    const fetchData = async () => {
       try {
+        setLoading(true);
+        setError('');
         const [coursesRes, admissionRes] = await Promise.all([
           axios.get(`${BASE_URL}/courses`),
           axios.get(`${BASE_URL}/vizionexl/${id}`),
@@ -62,52 +95,71 @@ export default function VizionexlFormEdit() {
         const coursesData = Array.isArray(coursesRes.data?.data)
           ? coursesRes.data.data
           : coursesRes.data || [];
-        const admission = admissionRes.data || admissionRes.data?.data || {};
+        const admission = admissionRes.data.data || admissionRes.data || {};
 
-        if (!mounted) return;
         setCourses(coursesData);
+        localStorage.setItem('courses', JSON.stringify(coursesData));
 
-        // Normalize admission to expected keys
-        setFormData({
-          date: admission.date || formData.date || '',
+        const now = new Date();
+        const istDate = new Date(
+          now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })
+        );
+        const day = String(istDate.getDate()).padStart(2, '0');
+        const month = String(istDate.getMonth() + 1).padStart(2, '0');
+        const year = istDate.getFullYear();
+
+        setForm({
+          date: admission.date || `${day}/${month}/${year}`,
           name: admission.name || '',
           mobile: admission.mobile || '',
-          idNumber: admission.idNumber || '',
+          email: admission.email || '',
+          address: admission.address || '',
           idType: admission.idType || 'Aadhar',
+          idNumber: admission.idNumber || '',
           course: admission.course || coursesData[0]?.name || '',
-          feesPaid:
-            admission.feesPaid != null ? String(admission.feesPaid) : '',
+          discount: admission.discount ? String(admission.discount) : '',
           handedTo: admission.handedTo || 'Rohan',
-          discount:
-            admission.discount != null ? String(admission.discount) : '',
+          remarks: admission.remarks || '',
+          paymentMode: admission.paymentMode || 'Cash',
+          upiTransactionId: admission.upiTransactionId || '',
+          upiPaidTo: admission.upiPaidTo || 'Rohan',
+          chequeNumber: admission.chequeNumber || '',
+          bankName: admission.bankName || '',
+          duration: admission.duration ? String(admission.duration) : '',
+          durationUnit: admission.durationUnit || 'months',
         });
+        setInstallments(admission.installments || []);
+        setNeedsRecalculation(true);
       } catch (err) {
-        console.error('Fetch error', err);
-        if (mounted) setError('Failed to load data. Try again.');
+        console.error('Error fetching data:', err);
+        setError(
+          err.response?.data?.message || 'Failed to load admission data'
+        );
+        toast.error('Failed to load admission data');
       } finally {
-        if (mounted) setLoading(false);
+        setLoading(false);
       }
     };
 
-    fetchAll();
-    return () => {
-      mounted = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchData();
   }, [id]);
 
-  // calculations (like VizionexlForm)
   useEffect(() => {
-    const selected = courses.find((c) => c.name === formData.course);
-    const courseFee = selected ? parseFloat(selected.fee) : 0;
-    const discountPercent = parseFloat(formData.discount) || 0;
+    if (!needsRecalculation) return;
+
+    const selectedCourse = courses.find((c) => c.name === form.course);
+    const courseFee = selectedCourse ? parseFloat(selectedCourse.fee) : 0;
+    const discountPercent = parseFloat(form.discount) || 0;
     const discountAmount = (courseFee * discountPercent) / 100;
     const netAmount = courseFee - discountAmount;
     const sgst = netAmount * 0.09;
     const cgst = netAmount * 0.09;
-    const totalWithGst = netAmount + sgst + cgst;
-    const paid = parseFloat(formData.feesPaid) || 0;
-    const feesRemaining = Math.max(0, totalWithGst - paid);
+    const totalWithGst = Math.round(netAmount + sgst + cgst);
+    const feesPaid = installments.reduce(
+      (sum, inst) => sum + (parseFloat(inst.amount) || 0),
+      0
+    );
+    const feesRemaining = Math.max(0, totalWithGst - feesPaid);
 
     setCalcs({
       courseFee,
@@ -116,306 +168,647 @@ export default function VizionexlFormEdit() {
       sgst,
       cgst,
       totalWithGst,
-      feesRemaining: Number(feesRemaining.toFixed(2)),
+      feesPaid,
+      feesRemaining,
     });
-  }, [formData.course, formData.discount, formData.feesPaid, courses]);
+    setNeedsRecalculation(false);
+  }, [form.course, form.discount, installments, courses, needsRecalculation]);
 
-  // input sanitizers (same rules as create form)
   const handleChange = (e) => {
     let { name, value } = e.target;
-
-    if (name === 'name') {
-      value = value.replace(/[^a-zA-Z\s]/g, '');
-    }
-    if (name === 'mobile') {
-      value = value.replace(/[^0-9]/g, '').slice(0, 10);
-    }
-    if (name === 'idNumber') {
-      value = value.replace(/[^0-9]/g, '').slice(0, 12);
-    }
+    if (name === 'name') value = value.replace(/[^a-zA-Z\s]/g, '');
+    if (name === 'mobile') value = value.replace(/[^0-9]/g, '').slice(0, 10);
     if (name === 'discount') {
       value = value.replace(/[^0-9.]/g, '');
       if (parseFloat(value) > 100) value = '100';
     }
-    if (name === 'feesPaid') {
-      // allow numeric with decimal
-      value = value === '' ? '' : String(parseFloat(value));
-    }
-
-    setFormData((p) => ({ ...p, [name]: value }));
+    if (name === 'idNumber') value = value.replace(/[^0-9A-Za-z]/g, '');
+    if (name === 'chequeNumber') value = value.replace(/[^0-9]/g, '');
+    if (name === 'upiTransactionId') value = value.replace(/[^0-9A-Za-z]/g, '');
+    if (name === 'duration') value = value.replace(/[^0-9]/g, '');
+    setForm((p) => ({ ...p, [name]: value }));
+    if (name === 'course' || name === 'discount') setNeedsRecalculation(true);
   };
 
-  // submit updated admission
+  const addInstallment = () => {
+    setInstallments((prev) => [...prev, { date: getTodayISO(), amount: '' }]);
+    setNeedsRecalculation(true);
+  };
+
+  const updateInstallment = (index, field, value) => {
+    const updated = [...installments];
+    updated[index][field] = value;
+    setInstallments(updated);
+    if (field === 'amount') setNeedsRecalculation(true);
+  };
+
+  const handleInstallmentKeyPress = (e, index, field) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      setNeedsRecalculation(true);
+    }
+  };
+
+  const removeInstallment = (index) => {
+    setInstallments((prev) => prev.filter((_, i) => i !== index));
+    setNeedsRecalculation(true);
+  };
+
+  const getStatus = () => {
+    if (calcs.totalWithGst === 0)
+      return { text: 'Empty (Add amount)', color: 'gray' };
+    if (calcs.feesRemaining === 0) return { text: 'Full Paid', color: 'green' };
+    if (calcs.feesRemaining < calcs.totalWithGst)
+      return { text: 'Partial Paid', color: 'orange' };
+    return { text: 'Pending', color: 'red' };
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-
-    // basic validations
-    if (!/^[6-9]\d{9}$/.test(formData.mobile)) {
-      setError('Enter a valid 10-digit mobile number.');
+    if (!/^[6-9]\d{9}$/.test(form.mobile)) {
+      toast.error('Enter a valid 10-digit Indian mobile number');
       return;
     }
-    if (formData.idType === 'Aadhar' && !/^\d{12}$/.test(formData.idNumber)) {
-      setError('Enter a valid 12-digit Aadhaar number.');
+    if (!courses.find((c) => c.name === form.course)) {
+      toast.error('Please select a valid course');
+      return;
+    }
+    if (form.paymentMode === 'PhonePe' && !form.upiTransactionId) {
+      toast.error('Please enter a UPI Transaction ID');
+      return;
+    }
+    if (
+      form.paymentMode === 'Cheque' &&
+      (!form.chequeNumber || !form.bankName)
+    ) {
+      toast.error('Please enter Cheque Number and Bank Name');
       return;
     }
 
-    // compute payload including calculated fields
-    const payload = {
-      date: formData.date,
-      name: formData.name,
-      mobile: formData.mobile,
-      idNumber: formData.idNumber,
-      idType: formData.idType,
-      course: formData.course,
-      feesPaid: parseFloat(formData.feesPaid) || 0,
-      handedTo: formData.handedTo,
-      discount: parseFloat(formData.discount) || 0,
-      courseFee: calcs.courseFee,
-      discountAmount: Number(calcs.discountAmount.toFixed(2)),
-      netAmount: Number(calcs.netAmount.toFixed(2)),
-      sgst: Number(calcs.sgst.toFixed(2)),
-      cgst: Number(calcs.cgst.toFixed(2)),
-      totalWithGst: Number(calcs.totalWithGst.toFixed(2)),
-      feesRemaining: Number(calcs.feesRemaining),
-    };
-
-    setSaving(true);
+    setIsSubmitting(true);
     try {
-      await axios.put(`${BASE_URL}/vizionexl/${id}`, payload);
-      alert('Admission updated successfully!');
-      navigate('/admission-list'); // adjust if your list route differs
+      const payload = {
+        ...form,
+        discount: parseFloat(form.discount) || 0,
+        totalWithGst: calcs.totalWithGst,
+        feesPaid: calcs.feesPaid,
+        feesRemaining: calcs.feesRemaining,
+        installments: installments.map((inst) => ({
+          ...inst,
+          amount: parseFloat(inst.amount) || 0,
+        })),
+      };
+      console.log('Submitting payload:', JSON.stringify(payload, null, 2));
+      const response = await axios.put(`${BASE_URL}/vizionexl/${id}`, payload);
+      console.log('Update response:', response.data);
+      toast.success('Admission updated successfully!');
+      navigate('/admission-list');
     } catch (err) {
-      console.error('Update error', err);
-      setError(err.response?.data?.message || 'Failed to update admission.');
+      console.error('Error updating admission:', err);
+      const errorMessage =
+        err.response?.data?.message || 'Failed to update admission';
+      // Display specific validation errors if available
+      if (err.response?.data?.errors?.length) {
+        const validationErrors = err.response.data.errors
+          .map((err) => `${err.field}: ${err.message}`)
+          .join('; ');
+        toast.error(`Validation failed: ${validationErrors}`);
+      } else {
+        toast.error(errorMessage);
+      }
+      console.error('Backend error details:', err.response?.data);
     } finally {
-      setSaving(false);
+      setIsSubmitting(false);
     }
   };
+
+  const status = getStatus();
 
   if (loading) {
     return (
-      <div className="container my-4 text-center">
-        <div className="spinner-border text-primary" role="status" />
-        <p>Loading admission data...</p>
+      <div
+        className="d-flex justify-content-center align-items-center"
+        style={{ height: '100vh', background: '#f8f9fa' }}
+      >
+        <div className="text-center">
+          <div
+            className="spinner-border text-primary mb-3"
+            style={{ width: '3rem', height: '3rem' }}
+          >
+            <span className="visually-hidden">Loading...</span>
+          </div>
+          <h5 className="text-muted">Loading admission data...</h5>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div
+        className="d-flex justify-content-center align-items-center"
+        style={{ height: '100vh', background: '#f8f9fa' }}
+      >
+        <div className="text-center">
+          <div className="alert alert-danger mb-4">
+            <FaFileAlt className="me-2" />
+            {error}
+          </div>
+          <button
+            className="btn btn-primary"
+            onClick={() => navigate('/admission-list')}
+          >
+            <FaArrowLeft className="me-2" />
+            Back to Admission List
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="container my-4">
+    <div className="p-3" style={{ background: '#fff', color: '#000' }}>
+      <style>{`
+        input[type=number]::-webkit-outer-spin-button,
+        input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+      `}</style>
+
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h2 className="fw-bold">✏️ Edit Admission</h2>
-        <button
-          className="btn btn-secondary d-flex align-items-center gap-2"
-          onClick={() => navigate('/admission-list')}
-        >
-          <FaArrowLeft /> Back to List
-        </button>
-      </div>
-
-      {error && <div className="alert alert-danger">{error}</div>}
-
-      <div className="card shadow">
-        <div className="card-body">
-          <form onSubmit={handleSubmit}>
-            <div className="row mb-3">
-              <div className="col-md-3">
-                <label className="form-label">Date</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  name="date"
-                  value={formData.date}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-
-              <div className="col-md-6">
-                <label className="form-label">Full Name</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-
-              <div className="col-md-3">
-                <label className="form-label">Mobile</label>
-                <input
-                  type="tel"
-                  className="form-control"
-                  name="mobile"
-                  value={formData.mobile}
-                  onChange={handleChange}
-                  required
-                  pattern="[0-9]{10}"
-                />
-              </div>
-            </div>
-
-            <div className="row mb-3">
-              <div className="col-md-4">
-                <label className="form-label">ID Proof Type</label>
-                <select
-                  className="form-select"
-                  name="idType"
-                  value={formData.idType}
-                  onChange={handleChange}
-                  required
-                >
-                  <option value="Aadhar">Aadhar</option>
-                  <option value="PAN">PAN</option>
-                  <option value="Voter ID">Voter ID</option>
-                  <option value="Driving License">Driving License</option>
-                  <option value="Passport">Passport</option>
-                </select>
-              </div>
-
-              <div className="col-md-8">
-                <label className="form-label">ID Number</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  name="idNumber"
-                  value={formData.idNumber}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="row mb-3">
-              <div className="col-md-4">
-                <label className="form-label">Course</label>
-                <select
-                  className="form-select"
-                  name="course"
-                  value={formData.course}
-                  onChange={handleChange}
-                  required
-                >
-                  {courses.map((c, idx) => (
-                    <option key={idx} value={c.name}>
-                      {c.name} (₹{c.fee})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="col-md-2">
-                <label className="form-label">Discount (%)</label>
-                <input
-                  type="number"
-                  className="form-control"
-                  name="discount"
-                  value={formData.discount}
-                  onChange={handleChange}
-                  min="0"
-                  max="100"
-                />
-              </div>
-
-              <div className="col-md-3">
-                <label className="form-label">Fees Paid (₹)</label>
-                <input
-                  type="number"
-                  className="form-control"
-                  name="feesPaid"
-                  value={formData.feesPaid}
-                  onChange={handleChange}
-                  min="0"
-                  step="0.01"
-                />
-              </div>
-
-              <div className="col-md-3">
-                <label className="form-label">Handed Over To</label>
-                <select
-                  className="form-select"
-                  name="handedTo"
-                  value={formData.handedTo}
-                  onChange={handleChange}
-                >
-                  <option value="Rohan">Rohan</option>
-                  <option value="Gururaj">Gururaj</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Calculation summary */}
-            <div className="mt-3">
-              <h6 className="fw-bold">Calculation Summary</h6>
-              <div className="card shadow-sm">
-                <div className="card-body p-0">
-                  <table className="table table-striped mb-0">
-                    <tbody>
-                      <tr>
-                        <th>Course Fee</th>
-                        <td>₹ {calcs.courseFee}</td>
-                      </tr>
-                      <tr>
-                        <th>Discount Amount ({formData.discount || 0}%)</th>
-                        <td>₹ {Number(calcs.discountAmount).toFixed(2)}</td>
-                      </tr>
-                      <tr className="table-info">
-                        <th>Net Amount</th>
-                        <td>₹ {Number(calcs.netAmount).toFixed(2)}</td>
-                      </tr>
-                      <tr>
-                        <th>SGST (9%)</th>
-                        <td>₹ {Number(calcs.sgst).toFixed(2)}</td>
-                      </tr>
-                      <tr>
-                        <th>CGST (9%)</th>
-                        <td>₹ {Number(calcs.cgst).toFixed(2)}</td>
-                      </tr>
-                      <tr className="table-warning">
-                        <th>Total with GST</th>
-                        <td>
-                          <b>₹ {Number(calcs.totalWithGst).toFixed(2)}</b>
-                        </td>
-                      </tr>
-                      <tr>
-                        <th>Fees Paid</th>
-                        <td>₹ {Number(formData.feesPaid || 0).toFixed(2)}</td>
-                      </tr>
-                      <tr className="table-danger">
-                        <th>Fees Remaining</th>
-                        <td>
-                          <b>₹ {Number(calcs.feesRemaining).toFixed(2)}</b>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            <div className="d-flex justify-content-end gap-3 mt-4">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => navigate('/admission-list')}
-                disabled={saving}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="btn btn-primary d-flex align-items-center gap-2"
-                disabled={saving}
-              >
-                <FaSave /> {saving ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </form>
+        <div className="text-center">
+          <img
+            src={vizionexlLogo}
+            alt="Vizionexl Logo"
+            style={{ maxWidth: '200px' }}
+            className="img-fluid"
+          />
+          <h4 className="fw-bold mt-2">
+            Edit Vizionexl Technologies Registration
+          </h4>
+        </div>
+        <div className="d-flex gap-2">
+          <button
+            type="button"
+            className="btn btn-secondary d-flex align-items-center"
+            onClick={() => navigate('/admission-list')}
+          >
+            <FaArrowLeft className="me-1" />
+            Back to Admission List
+          </button>
         </div>
       </div>
+
+      <form onSubmit={handleSubmit}>
+        <div className="row g-2">
+          <div className="col-12 col-md-3">
+            <label>
+              <FaCalendarAlt /> Date
+            </label>
+            <input className="form-control" value={form.date} readOnly />
+          </div>
+          <div className="col-12 col-md-3">
+            <label>
+              <FaUser /> Name
+            </label>
+            <input
+              name="name"
+              className="form-control"
+              value={form.name}
+              onChange={handleChange}
+              required
+            />
+          </div>
+          <div className="col-12 col-md-3">
+            <label>
+              <FaPhone /> Mobile
+            </label>
+            <input
+              name="mobile"
+              className="form-control"
+              value={form.mobile}
+              onChange={handleChange}
+              required
+              inputMode="numeric"
+              pattern="[0-9]*"
+            />
+          </div>
+          <div className="col-12 col-md-3">
+            <label>
+              <FaEnvelope /> Email (optional)
+            </label>
+            <input
+              name="email"
+              type="email"
+              className="form-control"
+              value={form.email}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="col-12 col-md-6">
+            <label>
+              <FaHome /> Address (optional)
+            </label>
+            <input
+              name="address"
+              className="form-control"
+              value={form.address}
+              onChange={handleChange}
+              title={form.address || ''}
+              style={{
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            />
+          </div>
+          <div className="col-12 col-md-3">
+            <label>
+              <FaIdCard /> ID Type
+            </label>
+            <select
+              name="idType"
+              className="form-select"
+              value={form.idType}
+              onChange={handleChange}
+              required
+            >
+              <option value="Aadhar">Aadhar</option>
+              <option value="PAN">PAN</option>
+              <option value="Passport">Passport</option>
+            </select>
+          </div>
+          <div className="col-12 col-md-3">
+            <label>
+              <FaRegIdCard /> ID Number
+            </label>
+            <input
+              name="idNumber"
+              className="form-control"
+              value={form.idNumber}
+              onChange={handleChange}
+              required
+            />
+          </div>
+          <div className="col-12 col-md-3">
+            <label>
+              <FaBook /> Course
+            </label>
+            <select
+              name="course"
+              className="form-select"
+              value={form.course}
+              onChange={handleChange}
+              required
+            >
+              {courses.map((c, i) => (
+                <option key={i} value={c.name}>
+                  {c.name} ({formatINR(c.fee)})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="col-6 col-md-3">
+            <label>
+              <FaPercent /> Discount (%)
+            </label>
+            <input
+              name="discount"
+              type="number"
+              className="form-control"
+              value={form.discount}
+              onChange={handleChange}
+              min="0"
+              max="100"
+              inputMode="numeric"
+              step="any"
+            />
+          </div>
+          <div className="col-6 col-md-3">
+            <label>
+              <FaFileAlt /> Amount to Pay (Net Amount)
+            </label>
+            <input
+              type="text"
+              className="form-control"
+              value={formatINR(calcs.netAmount)}
+              readOnly
+            />
+          </div>
+          <div className="col-12 col-md-3">
+            <label>
+              <FaMoneyBillWave /> Payment Mode
+            </label>
+            <select
+              name="paymentMode"
+              className="form-select"
+              value={form.paymentMode}
+              onChange={handleChange}
+            >
+              <option value="Cash">Cash</option>
+              <option value="PhonePe">PhonePe</option>
+              <option value="Cheque">Cheque</option>
+            </select>
+          </div>
+        </div>
+
+        {form.paymentMode === 'PhonePe' && (
+          <div className="row g-2 mt-2">
+            <div className="col-12 col-md-4">
+              <label>
+                <FaMobileAlt /> UPI Transaction ID
+              </label>
+              <input
+                name="upiTransactionId"
+                className="form-control"
+                value={form.upiTransactionId}
+                onChange={handleChange}
+                placeholder="Enter UPI Transaction ID"
+                required
+              />
+            </div>
+            <div className="col-12 col-md-4">
+              <label>
+                <FaUser /> Paid To
+              </label>
+              <select
+                name="upiPaidTo"
+                className="form-select"
+                value={form.upiPaidTo}
+                onChange={handleChange}
+              >
+                <option value="Rohan">Rohan</option>
+                <option value="Gururaj">Gururaj</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {form.paymentMode === 'Cheque' && (
+          <div className="row g-2 mt-2">
+            <div className="col-12 col-md-4">
+              <label>
+                <FaFileAlt /> Cheque Number
+              </label>
+              <input
+                name="chequeNumber"
+                className="form-control"
+                value={form.chequeNumber}
+                onChange={handleChange}
+                placeholder="Enter Cheque Number"
+                required
+              />
+            </div>
+            <div className="col-12 col-md-4">
+              <label>
+                <FaFileAlt /> Bank Name
+              </label>
+              <input
+                name="bankName"
+                className="form-control"
+                value={form.bankName}
+                onChange={handleChange}
+                placeholder="Enter Bank Name"
+                required
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="row g-2 mt-2">
+          <div className="col-12 col-md-3">
+            <label>
+              <FaClock /> Duration (optional)
+            </label>
+            <div className="input-group">
+              <input
+                name="duration"
+                type="number"
+                className="form-control"
+                style={{ width: '70px' }}
+                value={form.duration}
+                onChange={handleChange}
+                placeholder="e.g. 6"
+                min="0"
+                inputMode="numeric"
+              />
+              <select
+                name="durationUnit"
+                className="form-select"
+                style={{ width: '100px' }}
+                value={form.durationUnit}
+                onChange={handleChange}
+              >
+                <option value="days">Days</option>
+                <option value="weeks">Weeks</option>
+                <option value="months">Months</option>
+                <option value="years">Years</option>
+              </select>
+            </div>
+          </div>
+          <div className="col-12 col-md-3">
+            <label>
+              <FaUser /> Handed Over To
+            </label>
+            <select
+              name="handedTo"
+              className="form-select"
+              value={form.handedTo}
+              onChange={handleChange}
+            >
+              <option value="Rohan">Rohan</option>
+              <option value="Gururaj">Gururaj</option>
+            </select>
+          </div>
+          <div className="col-12 col-md-6">
+            <label>
+              <FaFileAlt /> Remarks
+            </label>
+            <input
+              name="remarks"
+              className="form-control"
+              value={form.remarks}
+              onChange={handleChange}
+              placeholder="Any additional notes"
+            />
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <div className="d-flex justify-content-between align-items-center mb-2">
+            <h6 className="fw-bold mb-0">Installments</h6>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              onClick={addInstallment}
+            >
+              <FaPlus /> Add Installment
+            </button>
+          </div>
+
+          {installments.length > 0 && (
+            <div className="table-responsive">
+              <table className="table table-sm table-bordered">
+                <thead className="table-light">
+                  <tr>
+                    <th width="40%">Date</th>
+                    <th width="40%">Amount</th>
+                    <th width="20%">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {installments.map((inst, i) => (
+                    <tr key={i}>
+                      <td>
+                        <input
+                          type="date"
+                          className="form-control form-control-sm"
+                          value={inst.date}
+                          onChange={(e) =>
+                            updateInstallment(i, 'date', e.target.value)
+                          }
+                          onKeyPress={(e) =>
+                            handleInstallmentKeyPress(e, i, 'date')
+                          }
+                          max={getTodayISO()}
+                        />
+                      </td>
+                      <td>
+                        <div className="input-group input-group-sm">
+                          <span className="input-group-text">₹</span>
+                          <input
+                            type="number"
+                            className="form-control"
+                            placeholder="Amount"
+                            value={inst.amount}
+                            onChange={(e) =>
+                              updateInstallment(i, 'amount', e.target.value)
+                            }
+                            onKeyPress={(e) =>
+                              handleInstallmentKeyPress(e, i, 'amount')
+                            }
+                            inputMode="numeric"
+                            step="any"
+                          />
+                        </div>
+                      </td>
+                      <td className="text-center">
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger"
+                          onClick={() => removeInstallment(i)}
+                        >
+                          <FaTrash />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-3">
+          <h6 className="fw-bold">Calculation Summary</h6>
+          <div className="table-responsive">
+            <table
+              className="table table-bordered table-striped table-sm mb-0"
+              style={{ fontSize: '0.85rem' }}
+            >
+              <thead className="table-dark">
+                <tr>
+                  <th>Item</th>
+                  <th>Formula</th>
+                  <th>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Course Fee</td>
+                  <td>As per selected course</td>
+                  <td>{formatINR(calcs.courseFee)}</td>
+                </tr>
+                {form.discount > 0 && (
+                  <tr>
+                    <td>Discount</td>
+                    <td>{form.discount}% of Course Fee</td>
+                    <td>- {formatINR(calcs.discountAmount)}</td>
+                  </tr>
+                )}
+                <tr>
+                  <td>Net Amount (Amount to Pay)</td>
+                  <td>Course Fee - Discount</td>
+                  <td>{formatINR(calcs.netAmount)}</td>
+                </tr>
+                <tr>
+                  <td>SGST (9%)</td>
+                  <td>Net Amount × 9%</td>
+                  <td>{formatINR(calcs.sgst)}</td>
+                </tr>
+                <tr>
+                  <td>CGST (9%)</td>
+                  <td>Net Amount × 9%</td>
+                  <td>{formatINR(calcs.cgst)}</td>
+                </tr>
+                <tr className="table-primary">
+                  <td>
+                    <b>Grand Total with GST (18%)</b>
+                  </td>
+                  <td>Net + SGST + CGST</td>
+                  <td>
+                    <b>{formatINR(calcs.totalWithGst)}</b>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Fees Paid</td>
+                  <td>Sum of installments (press Enter after typing amount)</td>
+                  <td>{formatINR(calcs.feesPaid)}</td>
+                </tr>
+                <tr
+                  className={
+                    calcs.feesRemaining === 0
+                      ? 'table-success'
+                      : calcs.totalWithGst === 0
+                      ? 'table-secondary'
+                      : 'table-warning'
+                  }
+                >
+                  <td>
+                    <b>Fees Remaining</b>
+                  </td>
+                  <td>Grand Total - Paid</td>
+                  <td>
+                    <b>{formatINR(calcs.feesRemaining)}</b>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Status</td>
+                  <td colSpan={2}>
+                    <span style={{ color: status.color }}>●</span> {status.text}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="mt-3 d-flex flex-wrap gap-2">
+          <button
+            type="submit"
+            className="btn btn-success px-4"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? 'Updating...' : 'Update'}
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/admission-list')}
+            className="btn btn-secondary px-4"
+          >
+            <FaArrowLeft /> Cancel
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

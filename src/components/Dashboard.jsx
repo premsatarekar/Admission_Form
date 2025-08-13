@@ -59,7 +59,6 @@ const Dashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  // Sample data - replace with your actual data
   const stats = {
     totalStudents: 3,
     amountCollected: '₹1,10,000',
@@ -126,8 +125,7 @@ const Dashboard = () => {
       </Typography>
 
       <Grid container spacing={3} sx={{ mb: 3 }}>
-        {/* Total Students */}
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard>
             <CardContent>
               <Box display="flex" alignItems="center" mb={2}>
@@ -143,8 +141,7 @@ const Dashboard = () => {
           </StatCard>
         </Grid>
 
-        {/* Amount Collected */}
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard>
             <CardContent>
               <Box display="flex" alignItems="center" mb={2}>
@@ -163,8 +160,7 @@ const Dashboard = () => {
           </StatCard>
         </Grid>
 
-        {/* Pending Amount */}
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard>
             <CardContent>
               <Box display="flex" alignItems="center" mb={2}>
@@ -183,8 +179,7 @@ const Dashboard = () => {
           </StatCard>
         </Grid>
 
-        {/* Admin Info */}
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard>
             <CardContent>
               <Box display="flex" alignItems="center" mb={2}>
@@ -200,15 +195,13 @@ const Dashboard = () => {
       </Grid>
 
       <Grid container spacing={3}>
-        {/* Recent Registrations */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>
                 Recent Registrations
               </Typography>
               <Divider sx={{ mb: 2 }} />
-
               {recentRegistrations.map((reg, index) => (
                 <RecentRegistrationCard
                   key={index}
@@ -237,15 +230,13 @@ const Dashboard = () => {
           </Card>
         </Grid>
 
-        {/* Course Distribution */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>
                 Course Distribution
               </Typography>
               <Divider sx={{ mb: 2 }} />
-
               <TableContainer component={Paper}>
                 <Table size="small">
                   <TableHead>
@@ -268,15 +259,13 @@ const Dashboard = () => {
           </Card>
         </Grid>
 
-        {/* Payment Handlers */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>
                 Top Payment Handlers
               </Typography>
               <Divider sx={{ mb: 2 }} />
-
               {paymentHandlers.map((handler, index) => (
                 <Box
                   key={index}
@@ -294,15 +283,13 @@ const Dashboard = () => {
           </Card>
         </Grid>
 
-        {/* Quick Actions */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>
                 Quick Actions
               </Typography>
               <Divider sx={{ mb: 2 }} />
-
               <Box display="flex" flexDirection="column" gap={2}>
                 <Button
                   variant="contained"
