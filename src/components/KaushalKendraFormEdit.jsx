@@ -1,11 +1,18 @@
 import axios from 'axios';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   FaArrowLeft,
   FaBook,
+  FaCalendarAlt,
   FaClock,
+  FaEnvelope,
   FaFileAlt,
+  FaFileInvoice,
+  FaHome,
   FaIdCard,
+  FaMobileAlt,
+  FaMoneyBillWave,
+  FaPercent,
   FaPhone,
   FaPlus,
   FaRegIdCard,
@@ -13,50 +20,63 @@ import {
   FaUser,
 } from 'react-icons/fa';
 import { useNavigate, useParams } from 'react-router-dom';
-import { toast } from 'react-toastify';
+import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import kaushalLogo from '../assets/kaushal-kendra-logo.jpg';
+import kaushalKendraLogo from '../assets/kaushal-kendra-logo.jpg';
 
 const BASE_URL = import.meta.env.VITE_BASE_URL || 'http://localhost:5000/api';
 
 export default function KaushalKendraEdit() {
   const navigate = useNavigate();
   const { id } = useParams();
-
-  const companyName = 'Kaushal Kendra';
-  const companyAddress =
-    '1st Floor, I C Nagathan Building, Opp Hunamshetti Tyres, Gurukul Road, Vijayapura';
-
-  const baseFee = 900;
-  const cgst = (baseFee * 0.09).toFixed(2);
-  const sgst = (baseFee * 0.09).toFixed(2);
-  const total = (baseFee + parseFloat(cgst) + parseFloat(sgst)).toFixed(2);
+  const timerRef = useRef(null);
 
   const [form, setForm] = useState({
     name: '',
     mobile: '',
+    email: '',
+    address: '',
     idType: 'Aadhar',
     idNumber: '',
     course: '',
-    handedTo: '',
+    discount: '',
+    amountPaid: '',
+    handedTo: 'Rohan',
+    remarks: '',
+    date: '',
+    paymentMode: 'Cash',
+    utrNumber: '',
+    chequeNumber: '',
+    bankName: '',
     duration: '',
     durationUnit: 'months',
+    registrationPaid: false,
+  });
+
+  const [courses, setCourses] = useState([]);
+  const [calcs, setCalcs] = useState({
+    courseFee: 0,
+    discountAmount: 0,
+    netAmount: 0,
+    sgst: 0,
+    cgst: 0,
+    totalWithGst: 0,
+    feesRemaining: 0,
   });
   const [installments, setInstallments] = useState([]);
-  const [calcs, setCalcs] = useState({
-    amountPaid: 0,
-    feesRemaining: total,
-  });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [needsRecalculation, setNeedsRecalculation] = useState(false);
-
-  const courses = ['Tally', 'Excel', 'Accounting Basics'];
 
   const getTodayISO = () => {
     const today = new Date();
     return today.toISOString().split('T')[0];
+  };
+
+  const roundRupee = (value) => {
+    const decimal = value - Math.floor(value);
+    return decimal >= 0.39 ? Math.ceil(value) : Math.floor(value);
   };
 
   const formatINR = (val) => {
@@ -70,64 +90,134 @@ export default function KaushalKendraEdit() {
     }).format(num);
   };
 
+  const parseDate = (dateStr) => {
+    if (!dateStr) return getTodayISO();
+    if (dateStr.includes('-')) {
+      const [year, month, day] = dateStr.split('-');
+      return `${day}/${month}/${year}`;
+    }
+    return dateStr;
+  };
+
   useEffect(() => {
-    const fetchRegistration = async () => {
+    const fetchCourses = async () => {
       try {
-        setLoading(true);
-        setError('');
-        const res = await axios.get(`${BASE_URL}/kaushal-kendra/${id}`);
-        const data = res.data;
-        setForm({
-          name: data.name || '',
-          mobile: data.mobile || '',
-          idType: data.idType || 'Aadhar',
-          idNumber: data.idNumber || '',
-          course: data.course || '',
-          handedTo: data.handedTo || '',
-          duration: data.duration ? data.duration.toString() : '',
-          durationUnit: data.durationUnit || 'months',
-        });
-        setInstallments(data.installments || []);
-        setNeedsRecalculation(true);
-      } catch (error) {
-        console.error('Error fetching registration:', error);
-        setError(
-          error.response?.data?.message || 'Failed to load registration data'
-        );
-        toast.error('Failed to load registration data');
-      } finally {
-        setLoading(false);
+        const res = await axios.get(`${BASE_URL}/courses`);
+        let data = Array.isArray(res.data?.data)
+          ? res.data.data
+          : res.data || [];
+        setCourses(data);
+        localStorage.setItem('courses', JSON.stringify(data));
+      } catch (err) {
+        console.error('Error fetching courses', err);
+        const stored = localStorage.getItem('courses');
+        if (stored) setCourses(JSON.parse(stored));
       }
     };
 
-    if (id) {
-      fetchRegistration();
-    }
-  }, [id]);
+    const fetchAdmission = async () => {
+      try {
+        setIsLoading(true);
+        setError('');
+        const res = await axios.get(`${BASE_URL}/kaushal-kendra/${id}`);
+        const data = res.data.data || res.data;
+        if (!data) throw new Error('No admission data found');
+
+        setForm({
+          name: data.name || '',
+          mobile: data.mobile || '',
+          email: data.email || '',
+          address: data.address || '',
+          idType: data.idType || 'Aadhar',
+          idNumber: data.idNumber || '',
+          course: data.course || (courses.length ? courses[0].name : ''),
+          discount: data.discount?.toString() || '',
+          amountPaid: data.amountPaid?.toString() || '0',
+          handedTo: data.handedTo || 'Rohan',
+          remarks: data.remarks || '',
+          date: parseDate(data.date),
+          paymentMode: data.paymentMode || 'Cash',
+          utrNumber: data.utrNumber || '',
+          chequeNumber: data.chequeNumber || '',
+          bankName: data.bankName || '',
+          duration: data.duration?.toString() || '',
+          durationUnit: data.durationUnit || 'months',
+          registrationPaid: Boolean(data.registrationPaid),
+        });
+
+        setInstallments(
+          Array.isArray(data.installments)
+            ? data.installments.map((inst) => ({
+                date: inst.date.includes('-')
+                  ? parseDate(inst.date)
+                  : inst.date,
+                amount: inst.amount?.toString() || '',
+              }))
+            : []
+        );
+
+        setNeedsRecalculation(true);
+      } catch (err) {
+        console.error('Error fetching admission:', err);
+        setError(
+          err.response?.data?.message || 'Failed to load admission data'
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchCourses();
+    fetchAdmission();
+  }, [id, courses.length]);
 
   useEffect(() => {
     if (!needsRecalculation) return;
 
-    const amountPaid = installments.reduce(
+    const selectedCourse = courses.find((c) => c.name === form.course);
+    const courseFee = selectedCourse ? parseFloat(selectedCourse.fee) : 0;
+    const discountPercent = parseFloat(form.discount) || 0;
+    const discountAmount = (courseFee * discountPercent) / 100;
+    const netAmount = courseFee - discountAmount;
+    const sgst = netAmount * 0.09;
+    const cgst = netAmount * 0.09;
+    const totalWithGst = roundRupee(netAmount + sgst + cgst);
+
+    const paid = installments.reduce(
       (sum, inst) => sum + (parseFloat(inst.amount) || 0),
       0
     );
-    const feesRemaining = Math.max(0, parseFloat(total) - amountPaid);
+    const feesRemaining = Math.max(0, totalWithGst - paid);
 
+    setForm((p) => ({ ...p, amountPaid: paid.toFixed(2) }));
     setCalcs({
-      amountPaid,
+      courseFee,
+      discountAmount,
+      netAmount,
+      sgst,
+      cgst,
+      totalWithGst,
       feesRemaining,
     });
     setNeedsRecalculation(false);
-  }, [installments, needsRecalculation]);
+  }, [form.course, form.discount, installments, courses, needsRecalculation]);
 
   const handleChange = (e) => {
     let { name, value } = e.target;
     if (name === 'name') value = value.replace(/[^a-zA-Z\s]/g, '');
     if (name === 'mobile') value = value.replace(/[^0-9]/g, '').slice(0, 10);
+    if (name === 'discount') {
+      value = value.replace(/[^0-9.]/g, '');
+      if (parseFloat(value) > 100) value = '100';
+    }
     if (name === 'idNumber') value = value.replace(/[^0-9A-Za-z]/g, '');
+    if (name === 'chequeNumber') value = value.replace(/[^0-9]/g, '');
+    if (name === 'utrNumber') value = value.replace(/[^0-9A-Za-z]/g, '');
     if (name === 'duration') value = value.replace(/[^0-9]/g, '');
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setForm((p) => ({ ...p, [name]: value }));
+    if (name === 'course' || name === 'discount') {
+      setNeedsRecalculation(true);
+    }
   };
 
   const addInstallment = () => {
@@ -153,48 +243,104 @@ export default function KaushalKendraEdit() {
   };
 
   const getStatus = () => {
+    if (calcs.totalWithGst === 0)
+      return { text: 'Empty (Add amount)', color: 'gray' };
     if (calcs.feesRemaining === 0) return { text: 'Full Paid', color: 'green' };
-    if (calcs.amountPaid > 0) return { text: 'Partial Paid', color: 'orange' };
+    if (calcs.feesRemaining < calcs.totalWithGst)
+      return { text: 'Partial Paid', color: 'orange' };
     return { text: 'Pending', color: 'red' };
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!/^[6-9]\d{9}$/.test(form.mobile)) {
-      toast.error('Enter a valid 10-digit Indian mobile number');
+      toast.error('Enter a valid 10-digit Indian mobile number', {
+        position: 'top-right',
+        autoClose: 3000,
+      });
       return;
     }
-    if (!courses.includes(form.course)) {
-      toast.error('Please select a valid course');
+    if (form.paymentMode === 'PhonePe' && !form.utrNumber) {
+      toast.error('UTR Number is required for PhonePe payments', {
+        position: 'top-right',
+        autoClose: 3000,
+      });
+      return;
+    }
+    if (
+      form.paymentMode === 'Cheque' &&
+      (!form.chequeNumber || !form.bankName)
+    ) {
+      toast.error(
+        'Cheque Number and Bank Name are required for Cheque payments',
+        {
+          position: 'top-right',
+          autoClose: 3000,
+        }
+      );
       return;
     }
     setIsSubmitting(true);
     try {
+      const paid = installments.reduce(
+        (sum, inst) => sum + (parseFloat(inst.amount) || 0),
+        0
+      );
+      const feesRemaining = Math.max(0, calcs.totalWithGst - paid);
+
       const payload = {
         ...form,
-        amountPaid: calcs.amountPaid,
-        feesRemaining: calcs.feesRemaining,
+        discount: parseFloat(form.discount) || 0,
+        amountPaid: paid,
+        feesRemaining,
+        registrationPaid: paid > 0,
         installments: installments.map((inst) => ({
-          ...inst,
+          date: inst.date.includes('/')
+            ? inst.date.split('/').reverse().join('-')
+            : inst.date,
           amount: parseFloat(inst.amount) || 0,
         })),
       };
-      await axios.put(`${BASE_URL}/kaushal-kendra/${id}`, payload);
-      toast.success('Registration updated successfully!');
-      navigate('/kaushal-kendra-list');
-    } catch (error) {
-      console.error('Error updating registration:', error);
-      toast.error(
-        error.response?.data?.message || 'Failed to update registration'
+
+      const res = await axios.patch(
+        `${BASE_URL}/kaushal-kendra/${id}`,
+        payload
       );
-    } finally {
+      if (res.data.success) {
+        toast.success('✅ Update Successful!', {
+          position: 'top-right',
+          autoClose: 2000,
+        });
+        timerRef.current = setTimeout(() => {
+          setIsSubmitting(false);
+          navigate('/kaushal-kendra-list');
+        }, 2000);
+      }
+    } catch (err) {
+      console.error('Error updating admission:', err);
       setIsSubmitting(false);
+      const errorMessage =
+        err.response?.data?.message ||
+        err.message ||
+        'Failed to update registration. Please try again.';
+      toast.error(`❌ ${errorMessage}`, {
+        position: 'top-right',
+        autoClose: 3000,
+      });
     }
   };
 
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+
   const status = getStatus();
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div
         className="d-flex justify-content-center align-items-center"
@@ -207,7 +353,7 @@ export default function KaushalKendraEdit() {
           >
             <span className="visually-hidden">Loading...</span>
           </div>
-          <h5 className="text-muted">Loading registration data...</h5>
+          <h5 className="text-muted">Loading admission data...</h5>
         </div>
       </div>
     );
@@ -221,7 +367,7 @@ export default function KaushalKendraEdit() {
       >
         <div className="text-center">
           <div className="alert alert-danger mb-4">
-            <FaFileAlt className="me-2" />
+            <FaExclamationTriangle className="me-2" />
             {error}
           </div>
           <button
@@ -229,7 +375,7 @@ export default function KaushalKendraEdit() {
             onClick={() => navigate('/kaushal-kendra-list')}
           >
             <FaArrowLeft className="me-2" />
-            Back to Registration List
+            Back to List
           </button>
         </div>
       </div>
@@ -238,6 +384,7 @@ export default function KaushalKendraEdit() {
 
   return (
     <div className="p-3" style={{ background: '#fff', color: '#000' }}>
+      <ToastContainer />
       <style>{`
         input[type=number]::-webkit-outer-spin-button,
         input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
@@ -247,13 +394,12 @@ export default function KaushalKendraEdit() {
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div className="text-center">
           <img
-            src={kaushalLogo}
+            src={kaushalKendraLogo}
             alt="Kaushal Kendra Logo"
             style={{ maxWidth: '200px' }}
             className="img-fluid"
           />
-          <h4 className="fw-bold mt-2">Edit {companyName} Registration</h4>
-          <p className="text-muted mb-0">{companyAddress}</p>
+          <h4 className="fw-bold mt-2">Edit Kaushal Kendra Registration</h4>
         </div>
         <div className="d-flex gap-2">
           <button
@@ -262,13 +408,30 @@ export default function KaushalKendraEdit() {
             onClick={() => navigate('/kaushal-kendra-list')}
           >
             <FaArrowLeft className="me-1" />
-            Back to Registration List
+            Back to List
           </button>
         </div>
       </div>
 
       <form onSubmit={handleSubmit}>
         <div className="row g-2">
+          <div className="col-12 col-md-3">
+            <label>
+              <FaCalendarAlt /> Date
+            </label>
+            <input
+              type="date"
+              name="date"
+              className="form-control"
+              value={
+                form.date.includes('/')
+                  ? form.date.split('/').reverse().join('-')
+                  : form.date
+              }
+              onChange={handleChange}
+              required
+            />
+          </div>
           <div className="col-12 col-md-3">
             <label>
               <FaUser /> Name
@@ -297,6 +460,35 @@ export default function KaushalKendraEdit() {
           </div>
           <div className="col-12 col-md-3">
             <label>
+              <FaEnvelope /> Email (optional)
+            </label>
+            <input
+              name="email"
+              type="email"
+              className="form-control"
+              value={form.email}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="col-12 col-md-6">
+            <label>
+              <FaHome /> Address (optional)
+            </label>
+            <input
+              name="address"
+              className="form-control"
+              value={form.address}
+              title={form.address || ''}
+              style={{
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="col-12 col-md-3">
+            <label>
               <FaIdCard /> ID Type
             </label>
             <select
@@ -304,7 +496,6 @@ export default function KaushalKendraEdit() {
               className="form-select"
               value={form.idType}
               onChange={handleChange}
-              required
             >
               <option value="Aadhar">Aadhar</option>
               <option value="PAN">PAN</option>
@@ -320,7 +511,6 @@ export default function KaushalKendraEdit() {
               className="form-control"
               value={form.idNumber}
               onChange={handleChange}
-              required
             />
           </div>
           <div className="col-12 col-md-3">
@@ -331,17 +521,130 @@ export default function KaushalKendraEdit() {
               name="course"
               className="form-select"
               value={form.course}
-              onChange={handleChange}
+              onChange={(e) => {
+                handleChange(e);
+                setNeedsRecalculation(true);
+              }}
               required
             >
-              <option value="">Select a course</option>
-              {courses.map((course, index) => (
-                <option key={index} value={course}>
-                  {course}
+              {courses.map((c, i) => (
+                <option key={i} value={c.name}>
+                  {c.name} ({formatINR(c.fee)})
                 </option>
               ))}
             </select>
           </div>
+          <div className="col-6 col-md-3">
+            <label>
+              <FaPercent /> Discount (%)
+            </label>
+            <input
+              name="discount"
+              type="number"
+              className="form-control"
+              value={form.discount}
+              onChange={(e) => {
+                handleChange(e);
+                setNeedsRecalculation(true);
+              }}
+              min="0"
+              max="100"
+              inputMode="numeric"
+              step="any"
+            />
+          </div>
+          <div className="col-6 col-md-3">
+            <label>
+              <FaFileInvoice /> Amount to Pay (Net Amount)
+            </label>
+            <input
+              type="text"
+              className="form-control"
+              value={formatINR(calcs.netAmount)}
+              readOnly
+            />
+          </div>
+          <div className="col-12 col-md-3">
+            <label>
+              <FaMoneyBillWave /> Payment Mode
+            </label>
+            <select
+              name="paymentMode"
+              className="form-select"
+              value={form.paymentMode}
+              onChange={handleChange}
+            >
+              <option value="Cash">Cash</option>
+              <option value="PhonePe">PhonePe</option>
+              <option value="Cheque">Cheque</option>
+            </select>
+          </div>
+        </div>
+
+        {form.paymentMode === 'PhonePe' && (
+          <div className="row g-2 mt-2">
+            <div className="col-12 col-md-4">
+              <label>
+                <FaMobileAlt /> UTR Number
+              </label>
+              <input
+                name="utrNumber"
+                className="form-control"
+                value={form.utrNumber}
+                onChange={handleChange}
+                placeholder="Enter UTR Number"
+                required
+              />
+            </div>
+            <div className="col-12 col-md-4">
+              <label>
+                <FaUser /> Handed To
+              </label>
+              <select
+                name="handedTo"
+                className="form-select"
+                value={form.handedTo}
+                onChange={handleChange}
+              >
+                <option value="Rohan">Rohan</option>
+                <option value="Gururaj">Gururaj</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {form.paymentMode === 'Cheque' && (
+          <div className="row g-2 mt-2">
+            <div className="col-12 col-md-4">
+              <label>
+                <FaFileAlt /> Cheque Number
+              </label>
+              <input
+                name="chequeNumber"
+                className="form-control"
+                value={form.chequeNumber}
+                onChange={handleChange}
+                placeholder="Enter Cheque Number"
+                required
+              />
+            </div>
+            <div className="col-12 col-md-4">
+              <label>
+                <FaFileAlt /> Bank Name
+              </label>
+              <input
+                name="bankName"
+                className="form-control"
+                value={form.bankName}
+                onChange={handleChange}
+                placeholder="Enter Bank Name"
+                required
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="row g-2 mt-2">
           <div className="col-12 col-md-3">
             <label>
               <FaClock /> Duration (optional)
@@ -381,12 +684,22 @@ export default function KaushalKendraEdit() {
               className="form-select"
               value={form.handedTo}
               onChange={handleChange}
-              required
             >
-              <option value="">Select</option>
               <option value="Rohan">Rohan</option>
               <option value="Gururaj">Gururaj</option>
             </select>
+          </div>
+          <div className="col-12 col-md-6">
+            <label>
+              <FaFileAlt /> Remarks
+            </label>
+            <input
+              name="remarks"
+              className="form-control"
+              value={form.remarks}
+              onChange={handleChange}
+              placeholder="Any additional notes"
+            />
           </div>
         </div>
 
@@ -395,7 +708,7 @@ export default function KaushalKendraEdit() {
             <h6 className="fw-bold mb-0">Installments</h6>
             <button
               type="button"
-              className="btn btn-sm btn-primary"
+              className="btn btn-sm btn-outline-primary"
               onClick={addInstallment}
             >
               <FaPlus /> Add Installment
@@ -419,7 +732,11 @@ export default function KaushalKendraEdit() {
                         <input
                           type="date"
                           className="form-control form-control-sm"
-                          value={inst.date}
+                          value={
+                            inst.date.includes('/')
+                              ? inst.date.split('/').reverse().join('-')
+                              : inst.date
+                          }
                           onChange={(e) =>
                             updateInstallment(i, 'date', e.target.value)
                           }
@@ -451,7 +768,7 @@ export default function KaushalKendraEdit() {
                       <td className="text-center">
                         <button
                           type="button"
-                          className="btn btn-sm btn-danger"
+                          className="btn btn-sm btn-outline-danger"
                           onClick={() => removeInstallment(i)}
                         >
                           <FaTrash />
@@ -475,53 +792,72 @@ export default function KaushalKendraEdit() {
               <thead className="table-dark">
                 <tr>
                   <th>Item</th>
+                  <th>Formula</th>
                   <th>Amount</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td>Base Fee</td>
-                  <td>{formatINR(baseFee)}</td>
+                  <td>Course Fee</td>
+                  <td>As per selected course</td>
+                  <td>{formatINR(calcs.courseFee)}</td>
                 </tr>
+                {form.discount > 0 && (
+                  <tr>
+                    <td>Discount</td>
+                    <td>{form.discount}% of Course Fee</td>
+                    <td>- {formatINR(calcs.discountAmount)}</td>
+                  </tr>
+                )}
                 <tr>
-                  <td>CGST (9%)</td>
-                  <td>{formatINR(cgst)}</td>
+                  <td>Net Amount (Amount to Pay)</td>
+                  <td>Course Fee - Discount</td>
+                  <td>{formatINR(calcs.netAmount)}</td>
                 </tr>
                 <tr>
                   <td>SGST (9%)</td>
-                  <td>{formatINR(sgst)}</td>
+                  <td>Net Amount × 9%</td>
+                  <td>{formatINR(calcs.sgst)}</td>
+                </tr>
+                <tr>
+                  <td>CGST (9%)</td>
+                  <td>Net Amount × 9%</td>
+                  <td>{formatINR(calcs.cgst)}</td>
                 </tr>
                 <tr className="table-primary">
                   <td>
-                    <b>Total (with GST)</b>
+                    <b>Grand Total with GST (18%)</b>
                   </td>
+                  <td>Net + SGST + CGST</td>
                   <td>
-                    <b>{formatINR(total)}</b>
+                    <b>{formatINR(calcs.totalWithGst)}</b>
                   </td>
                 </tr>
                 <tr>
                   <td>Fees Paid</td>
-                  <td>{formatINR(calcs.amountPaid)}</td>
+                  <td>Sum of installments (press Enter after typing amount)</td>
+                  <td>{formatINR(form.amountPaid)}</td>
                 </tr>
                 <tr
                   className={
                     calcs.feesRemaining === 0
                       ? 'table-success'
-                      : calcs.amountPaid === 0
-                      ? 'table-warning'
+                      : calcs.totalWithGst === 0
+                      ? 'table-secondary'
                       : 'table-warning'
                   }
                 >
                   <td>
                     <b>Fees Remaining</b>
                   </td>
+                  <td>Grand Total - Paid</td>
                   <td>
                     <b>{formatINR(calcs.feesRemaining)}</b>
                   </td>
                 </tr>
                 <tr>
                   <td>Status</td>
-                  <td>
+                  <td colSpan={2}>
                     <span style={{ color: status.color }}>●</span> {status.text}
                   </td>
                 </tr>
@@ -533,17 +869,30 @@ export default function KaushalKendraEdit() {
         <div className="mt-3 d-flex flex-wrap gap-2">
           <button
             type="submit"
-            className="btn btn-success px-4"
+            className="btn btn-success px-4 d-flex align-items-center justify-content-center"
             disabled={isSubmitting}
           >
+            {isSubmitting && (
+              <span
+                className="spinner-border spinner-border-sm me-2"
+                role="status"
+                aria-hidden="true"
+              ></span>
+            )}
             {isSubmitting ? 'Updating...' : 'Update'}
           </button>
           <button
             type="button"
             onClick={() => navigate('/kaushal-kendra-list')}
-            className="btn btn-secondary px-4"
+            className="btn btn-primary px-4 d-flex align-items-center justify-content-center"
+            style={{
+              background: 'linear-gradient(90deg, #4b6cb7, #182848)',
+              border: 'none',
+              fontWeight: 500,
+            }}
           >
-            <FaArrowLeft /> Cancel
+            <FaFileInvoice className="me-1" />
+            Kaushal Kendra List
           </button>
         </div>
       </form>

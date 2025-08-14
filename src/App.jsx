@@ -9,6 +9,7 @@ import {
   useNavigate,
 } from 'react-router-dom';
 import AddCourse from './components/AddCourse';
+import AddCourseKaushalKendra from './components/AddCourseKaushalKendra';
 import ForgotPassword from './components/Auth/ForgotPassword';
 import Login from './components/Auth/Login';
 import OtpVerification from './components/Auth/OtpVerification';
@@ -19,7 +20,7 @@ import KaushalKendraEdit from './components/KaushalKendraFormEdit';
 import KaushalKendraFormList from './components/KaushalKendraFormList';
 import PrivateRoute from './components/PrivateRoute';
 import VizionexlForm from './components/VizionexlForm';
-import VizionexlFormEdit from './components/VizionexlFormEdit'; // Updated import
+import VizionexlFormEdit from './components/VizionexlFormEdit';
 import AdmissionList from './components/VizionexlFormList';
 import { AuthProvider } from './context/AuthContext';
 
@@ -96,6 +97,14 @@ function App() {
               }
             />
             <Route
+              path="/add-course-kaushalkendra"
+              element={
+                <PrivateRoute>
+                  <AddCourseKaushalKendra />
+                </PrivateRoute>
+              }
+            />
+            <Route
               path="/admission-list"
               element={
                 <PrivateRoute>
@@ -118,8 +127,7 @@ function App() {
                   <VizionexlFormEdit />
                 </PrivateRoute>
               }
-            />{' '}
-            {/* Updated to VizionexlFormEdit */}
+            />
             <Route
               path="/kaushal-kendra/edit/:id"
               element={

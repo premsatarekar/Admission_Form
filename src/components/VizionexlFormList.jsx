@@ -622,7 +622,7 @@ export default function VizionexlFormList() {
             <div className="d-flex gap-1">
               <button
                 className="btn btn-secondary d-flex align-items-center"
-                onClick={() => navigate('/')}
+                onClick={() => navigate('/home')}
                 title="Back to Form"
               >
                 <FaArrowLeft className="me-1" />
