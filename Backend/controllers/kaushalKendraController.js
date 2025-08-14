@@ -27,11 +27,14 @@ const validateRegistrationData = (data) => {
   if (!data.course || typeof data.course !== 'string') {
     errors.push('Course is required and must be a string');
   }
+  if (data.courseFee && isNaN(parseFloat(data.courseFee))) {
+    errors.push('Course fee must be a valid number');
+  }
+  if (data.discount && isNaN(parseFloat(data.discount))) {
+    errors.push('Discount must be a valid number');
+  }
   if (data.amountPaid && isNaN(parseFloat(data.amountPaid))) {
     errors.push('Amount paid must be a valid number');
-  }
-  if (data.feesRemaining && isNaN(parseFloat(data.feesRemaining))) {
-    errors.push('Fees remaining must be a valid number');
   }
   if (
     data.paymentMode &&
@@ -44,6 +47,15 @@ const validateRegistrationData = (data) => {
   }
   if (data.paymentMode === 'Cheque' && (!data.chequeNumber || !data.bankName)) {
     errors.push('Cheque number and bank name are required for Cheque payments');
+  }
+  if (data.installments && Array.isArray(data.installments)) {
+    const totalInstallments = data.installments.reduce(
+      (sum, inst) => sum + (parseFloat(inst.amount) || 0),
+      0
+    );
+    if (parseFloat(data.amountPaid) !== totalInstallments) {
+      errors.push('Amount paid must equal the sum of installment amounts');
+    }
   }
   return errors;
 };
@@ -61,7 +73,8 @@ export const createRegistration = async (req, res) => {
       course,
       registrationPaid,
       amountPaid,
-      feesRemaining,
+      courseFee,
+      discount,
       handedTo,
       paymentMode,
       utrNumber,
@@ -88,11 +101,33 @@ export const createRegistration = async (req, res) => {
       ? format(new Date(parsedDate), 'yyyy-MM-dd')
       : format(new Date(), 'yyyy-MM-dd');
 
+    // Fetch course fee from courses_kaushal_kendra
+    const [courseRows] = await db.query(
+      'SELECT fee FROM courses_kaushal_kendra WHERE name = ?',
+      [course]
+    );
+    if (!courseRows.length) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Invalid course selected' });
+    }
+    const dbCourseFee = parseFloat(courseRows[0].fee);
+    const inputCourseFee = parseFloat(courseFee) || dbCourseFee;
+    if (inputCourseFee !== dbCourseFee) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Course fee mismatch' });
+    }
+
+    const discountPercent = parseFloat(discount) || 0;
+    const discountAmount = (inputCourseFee * discountPercent) / 100;
+
     const [result] = await db.query(
       `INSERT INTO kaushal_kendra_registrations 
       (name, mobile, email, address, idType, idNumber, course, registrationPaid, amountPaid, 
-       feesRemaining, handedTo, paymentMode, utrNumber, upiPaidTo, bankName, chequeNumber, date, duration, durationUnit)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       courseFee, discount, discountAmount, handedTo, paymentMode, utrNumber, upiPaidTo, 
+       bankName, chequeNumber, date, duration, durationUnit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         name,
         mobile,
@@ -103,7 +138,9 @@ export const createRegistration = async (req, res) => {
         course,
         Boolean(registrationPaid),
         parseFloat(amountPaid) || 0,
-        parseFloat(feesRemaining) || 0,
+        inputCourseFee,
+        discountPercent,
+        discountAmount,
         handedTo || null,
         paymentMode || 'Cash',
         utrNumber || null,
@@ -158,9 +195,8 @@ export const getRegistrations = async (req, res) => {
     // Process data to match frontend expectations
     const processedData = rows.map((row) => {
       const amountPaid = parseFloat(row.amountPaid) || 0;
-      const feesRemaining = parseFloat(row.feesRemaining) || 0;
       let status = 'Pending';
-      if (feesRemaining === 0 && amountPaid > 0) status = 'Full Paid';
+      if (row.feesRemaining === 0 && amountPaid > 0) status = 'Full Paid';
       else if (amountPaid > 0) status = 'Partial Paid';
 
       // Handle installments: check if it's already an object or needs parsing
@@ -221,9 +257,8 @@ export const getRegistrationById = async (req, res) => {
 
     const row = rows[0];
     const amountPaid = parseFloat(row.amountPaid) || 0;
-    const feesRemaining = parseFloat(row.feesRemaining) || 0;
     let status = 'Pending';
-    if (feesRemaining === 0 && amountPaid > 0) status = 'Full Paid';
+    if (row.feesRemaining === 0 && amountPaid > 0) status = 'Full Paid';
     else if (amountPaid > 0) status = 'Partial Paid';
 
     // Handle installments: check if it's already an object or needs parsing
@@ -276,7 +311,8 @@ export const updateRegistration = async (req, res) => {
       course,
       registrationPaid,
       amountPaid,
-      feesRemaining,
+      courseFee,
+      discount,
       handedTo,
       paymentMode,
       utrNumber,
@@ -303,11 +339,32 @@ export const updateRegistration = async (req, res) => {
       ? format(new Date(parsedDate), 'yyyy-MM-dd')
       : format(new Date(), 'yyyy-MM-dd');
 
+    // Fetch course fee from courses_kaushal_kendra
+    const [courseRows] = await db.query(
+      'SELECT fee FROM courses_kaushal_kendra WHERE name = ?',
+      [course]
+    );
+    if (!courseRows.length) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Invalid course selected' });
+    }
+    const dbCourseFee = parseFloat(courseRows[0].fee);
+    const inputCourseFee = parseFloat(courseFee) || dbCourseFee;
+    if (inputCourseFee !== dbCourseFee) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Course fee mismatch' });
+    }
+
+    const discountPercent = parseFloat(discount) || 0;
+    const discountAmount = (inputCourseFee * discountPercent) / 100;
+
     const [result] = await db.query(
       `UPDATE kaushal_kendra_registrations 
        SET name=?, mobile=?, email=?, address=?, idType=?, idNumber=?, course=?, registrationPaid=?, 
-           amountPaid=?, feesRemaining=?, handedTo=?, paymentMode=?, utrNumber=?, upiPaidTo=?, 
-           bankName=?, chequeNumber=?, date=?, duration=?, durationUnit=?
+           amountPaid=?, courseFee=?, discount=?, discountAmount=?, handedTo=?, paymentMode=?, 
+           utrNumber=?, upiPaidTo=?, bankName=?, chequeNumber=?, date=?, duration=?, durationUnit=?
        WHERE id=?`,
       [
         name,
@@ -319,7 +376,9 @@ export const updateRegistration = async (req, res) => {
         course,
         Boolean(registrationPaid),
         parseFloat(amountPaid) || 0,
-        parseFloat(feesRemaining) || 0,
+        inputCourseFee,
+        discountPercent,
+        discountAmount,
         handedTo || null,
         paymentMode || 'Cash',
         utrNumber || null,
@@ -432,9 +491,9 @@ export const markBalancePaid = async (req, res) => {
 
     const [result] = await db.query(
       `UPDATE kaushal_kendra_registrations 
-       SET amountPaid = ?, feesRemaining = ?
+       SET amountPaid = ?, registrationPaid = ?
        WHERE id = ?`,
-      [newAmountPaid, newFeesRemaining, id]
+      [newAmountPaid, !isPaid, id]
     );
 
     if (result.affectedRows === 0) {

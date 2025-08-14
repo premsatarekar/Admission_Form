@@ -40,6 +40,7 @@ export default function KaushalKendraEdit() {
     idNumber: '',
     course: '',
     discount: '',
+    courseFee: '',
     amountPaid: '',
     handedTo: 'Rohan',
     remarks: '',
@@ -48,6 +49,7 @@ export default function KaushalKendraEdit() {
     utrNumber: '',
     chequeNumber: '',
     bankName: '',
+    upiPaidTo: '',
     duration: '',
     durationUnit: 'months',
     registrationPaid: false,
@@ -92,11 +94,17 @@ export default function KaushalKendraEdit() {
 
   const parseDate = (dateStr) => {
     if (!dateStr) return getTodayISO();
-    if (dateStr.includes('-')) {
-      const [year, month, day] = dateStr.split('-');
-      return `${day}/${month}/${year}`;
+    // Handle ISO date strings (e.g., "2025-08-10T18:30:00.000Z") or "yyyy-MM-dd"
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime())) {
+      return date.toISOString().split('T')[0]; // Return "yyyy-MM-dd"
     }
-    return dateStr;
+    // If already in "yyyy-MM-dd" format, return as is
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return dateStr;
+    }
+    // Fallback to today's date if invalid
+    return getTodayISO();
   };
 
   useEffect(() => {
@@ -131,7 +139,8 @@ export default function KaushalKendraEdit() {
           idType: data.idType || 'Aadhar',
           idNumber: data.idNumber || '',
           course: data.course || (courses.length ? courses[0].name : ''),
-          discount: data.discount?.toString() || '',
+          discount: data.discount?.toString() || '0',
+          courseFee: data.courseFee?.toString() || '0',
           amountPaid: data.amountPaid?.toString() || '0',
           handedTo: data.handedTo || 'Rohan',
           remarks: data.remarks || '',
@@ -140,6 +149,7 @@ export default function KaushalKendraEdit() {
           utrNumber: data.utrNumber || '',
           chequeNumber: data.chequeNumber || '',
           bankName: data.bankName || '',
+          upiPaidTo: data.upiPaidTo || '',
           duration: data.duration?.toString() || '',
           durationUnit: data.durationUnit || 'months',
           registrationPaid: Boolean(data.registrationPaid),
@@ -148,9 +158,7 @@ export default function KaushalKendraEdit() {
         setInstallments(
           Array.isArray(data.installments)
             ? data.installments.map((inst) => ({
-                date: inst.date.includes('-')
-                  ? parseDate(inst.date)
-                  : inst.date,
+                date: parseDate(inst.date),
                 amount: inst.amount?.toString() || '',
               }))
             : []
@@ -189,7 +197,11 @@ export default function KaushalKendraEdit() {
     );
     const feesRemaining = Math.max(0, totalWithGst - paid);
 
-    setForm((p) => ({ ...p, amountPaid: paid.toFixed(2) }));
+    setForm((p) => ({
+      ...p,
+      courseFee: courseFee.toFixed(2),
+      amountPaid: paid.toFixed(2),
+    }));
     setCalcs({
       courseFee,
       discountAmount,
@@ -222,12 +234,14 @@ export default function KaushalKendraEdit() {
 
   const addInstallment = () => {
     setInstallments((prev) => [...prev, { date: getTodayISO(), amount: '' }]);
+    setNeedsRecalculation(true);
   };
 
   const updateInstallment = (index, field, value) => {
     const updated = [...installments];
     updated[index][field] = value;
     setInstallments(updated);
+    if (field === 'amount') setNeedsRecalculation(true);
   };
 
   const handleInstallmentKeyPress = (e, index, field) => {
@@ -260,11 +274,17 @@ export default function KaushalKendraEdit() {
       });
       return;
     }
-    if (form.paymentMode === 'PhonePe' && !form.utrNumber) {
-      toast.error('UTR Number is required for PhonePe payments', {
-        position: 'top-right',
-        autoClose: 3000,
-      });
+    if (
+      form.paymentMode === 'PhonePe' &&
+      (!form.utrNumber || !form.upiPaidTo)
+    ) {
+      toast.error(
+        'UTR Number and UPI Paid To are required for PhonePe payments',
+        {
+          position: 'top-right',
+          autoClose: 3000,
+        }
+      );
       return;
     }
     if (
@@ -280,24 +300,27 @@ export default function KaushalKendraEdit() {
       );
       return;
     }
+
     setIsSubmitting(true);
     try {
+      const selectedCourse = courses.find((c) => c.name === form.course);
+      const courseFee = selectedCourse ? parseFloat(selectedCourse.fee) : 0;
+      const discountPercent = parseFloat(form.discount) || 0;
+      const discountAmount = (courseFee * discountPercent) / 100;
       const paid = installments.reduce(
         (sum, inst) => sum + (parseFloat(inst.amount) || 0),
         0
       );
-      const feesRemaining = Math.max(0, calcs.totalWithGst - paid);
 
       const payload = {
         ...form,
-        discount: parseFloat(form.discount) || 0,
+        courseFee,
+        discount: discountPercent,
+        discountAmount,
         amountPaid: paid,
-        feesRemaining,
         registrationPaid: paid > 0,
         installments: installments.map((inst) => ({
-          date: inst.date.includes('/')
-            ? inst.date.split('/').reverse().join('-')
-            : inst.date,
+          date: inst.date, // Already in yyyy-MM-dd format
           amount: parseFloat(inst.amount) || 0,
         })),
       };
@@ -423,11 +446,7 @@ export default function KaushalKendraEdit() {
               type="date"
               name="date"
               className="form-control"
-              value={
-                form.date.includes('/')
-                  ? form.date.split('/').reverse().join('-')
-                  : form.date
-              }
+              value={form.date}
               onChange={handleChange}
               required
             />
@@ -598,17 +617,16 @@ export default function KaushalKendraEdit() {
             </div>
             <div className="col-12 col-md-4">
               <label>
-                <FaUser /> Handed To
+                <FaUser /> UPI Paid To
               </label>
-              <select
-                name="handedTo"
-                className="form-select"
-                value={form.handedTo}
+              <input
+                name="upiPaidTo"
+                className="form-control"
+                value={form.upiPaidTo || ''}
                 onChange={handleChange}
-              >
-                <option value="Rohan">Rohan</option>
-                <option value="Gururaj">Gururaj</option>
-              </select>
+                placeholder="Enter UPI Paid To"
+                required
+              />
             </div>
           </div>
         )}
@@ -732,11 +750,7 @@ export default function KaushalKendraEdit() {
                         <input
                           type="date"
                           className="form-control form-control-sm"
-                          value={
-                            inst.date.includes('/')
-                              ? inst.date.split('/').reverse().join('-')
-                              : inst.date
-                          }
+                          value={inst.date}
                           onChange={(e) =>
                             updateInstallment(i, 'date', e.target.value)
                           }
