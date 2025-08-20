@@ -23,6 +23,7 @@ import VizionexlForm from './components/VizionexlForm';
 import VizionexlFormEdit from './components/VizionexlFormEdit';
 import AdmissionList from './components/VizionexlFormList';
 import { AuthProvider } from './context/AuthContext';
+import DashboardKK from './components/DashboardKK';
 
 function Home() {
   const [department, setDepartment] = useState('vizionexl');
@@ -77,6 +78,14 @@ function App() {
               element={
                 <PrivateRoute>
                   <Dashboard />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/kaushal-Kendra-dashboard"
+              element={
+                <PrivateRoute>
+                  <DashboardKK />
                 </PrivateRoute>
               }
             />

@@ -115,7 +115,9 @@ export default function KaushalKendraForm() {
   useEffect(() => {
     const fetchCourses = async () => {
       try {
-        const res = await axios.get(`${BASE_URL}/courses`, { timeout: 10000 });
+        const res = await axios.get(`${BASE_URL}/courses-kaushal-kendra`, {
+          timeout: 10000,
+        });
         let data = Array.isArray(res.data?.data)
           ? res.data.data
           : res.data || [];
@@ -389,6 +391,14 @@ export default function KaushalKendraForm() {
           >
             <FaArrowLeft className="me-1" />
             Back to List
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary d-flex align-items-center"
+            onClick={() => navigate('/add-course-kaushalkendra')}
+          >
+            <FaPlus className="me-1" />
+            Add Course
           </button>
         </div>
       </div>

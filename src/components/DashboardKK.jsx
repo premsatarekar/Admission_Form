@@ -17,7 +17,6 @@ import {
   FaChartPie,
   FaCheckCircle,
   FaClock,
-  FaCreditCard,
   FaDollarSign,
   FaMobileAlt,
   FaMoneyBillWave,
@@ -28,11 +27,11 @@ import {
 } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import './Dashboard.css';
+import './DashboardKK.css';
 
 const BASE_URL = import.meta.env.VITE_BASE_URL || 'http://localhost:5000/api';
 
-const Dashboard = () => {
+const DashboardKK = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState({
@@ -62,13 +61,12 @@ const Dashboard = () => {
     const istDate = new Date(
       now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })
     );
-    // Set initial time to 12:35 PM IST, August 19, 2025
     if (!currentTime) {
       istDate.setFullYear(2025);
       istDate.setMonth(7); // August (0-based index)
       istDate.setDate(19);
       istDate.setHours(12);
-      istDate.setMinutes(35);
+      istDate.setMinutes(59);
       istDate.setSeconds(0);
     }
     const time = istDate.toLocaleTimeString('en-IN', {
@@ -91,17 +89,14 @@ const Dashboard = () => {
       setLoading(true);
       setError('');
 
-      const courseRes = await axios.get(`${BASE_URL}/courses`, {
+      const res = await axios.get(`${BASE_URL}/kaushal-kendra`, {
         timeout: 10000,
       });
-      const courses = courseRes.data || [];
-
-      const res = await axios.get(`${BASE_URL}/vizionexl`, { timeout: 10000 });
       const data = res.data.data || [];
 
       const totalStudents = data.length;
       const amountCollected = data.reduce(
-        (sum, reg) => sum + (parseFloat(reg.feesPaid) || 0),
+        (sum, reg) => sum + (parseFloat(reg.amountPaid) || 0),
         0
       );
       const pendingAmount = data.reduce(
@@ -116,17 +111,24 @@ const Dashboard = () => {
       });
 
       const recent = data
-        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
         .slice(0, 3)
         .map((reg) => ({
           name: reg.name,
           course: reg.course,
           date: reg.date,
-          paymentType: reg.feesRemaining === 0 ? 'Full Paid' : reg.paymentMode,
+          paymentType:
+            reg.feesRemaining === 0
+              ? 'Full Paid'
+              : reg.paymentMode || 'Pending',
         }));
 
       setRecentRegistrations(recent);
 
+      const courseRes = await axios.get(`${BASE_URL}/courses-kaushal-kendra`, {
+        timeout: 10000,
+      });
+      const courses = courseRes.data.data || [];
       const distribution = courses.map((course) => ({
         name: course.name,
         count: data.filter((reg) => reg.course === course.name).length,
@@ -134,8 +136,8 @@ const Dashboard = () => {
       setCourseDistribution(distribution);
 
       const handlers = [
-        { name: 'Mr. Gururaj Gote', value: 'Gururaj' },
         { name: 'Mr. Rohan', value: 'Rohan' },
+        { name: 'Mr. Gururaj Gote', value: 'Gururaj' },
       ];
       const handlerData = handlers.map((handler) => {
         const registrations = data.filter(
@@ -143,7 +145,7 @@ const Dashboard = () => {
         );
         const students = registrations.length;
         const amount = registrations.reduce(
-          (sum, reg) => sum + (parseFloat(reg.feesPaid) || 0),
+          (sum, reg) => sum + (parseFloat(reg.amountPaid) || 0),
           0
         );
         return { name: handler.name, students, amount: formatINR(amount) };
@@ -165,6 +167,7 @@ const Dashboard = () => {
   }, []);
 
   const goToForms = () => navigate('/home');
+  const goToList = () => navigate('/kaushal-kendra-list');
 
   const getPaymentIcon = (type) => {
     switch (type) {
@@ -173,7 +176,7 @@ const Dashboard = () => {
       case 'PhonePe':
         return <FaMobileAlt color="#2196f3" />;
       case 'Cheque':
-        return <FaCreditCard color="#4caf50" />;
+        return <FaMoneyBillWave color="#4caf50" />;
       case 'Full Paid':
         return <FaCheckCircle color="#4caf50" />;
       default:
@@ -227,10 +230,10 @@ const Dashboard = () => {
             variant="h4"
             sx={{ fontWeight: 'bold', color: '#1a3c34' }}
           >
-            Student Manager
+            Kaushal Kendra
           </Typography>
           <Typography variant="subtitle1" color="text.secondary">
-            Vizionexl — Admin Dashboard
+            Admin Dashboard
           </Typography>
         </Box>
         <div className="clock-container">
@@ -443,13 +446,13 @@ const Dashboard = () => {
                 sx={{ bgcolor: '#3f51b5', '&:hover': { bgcolor: '#2c3e50' } }}
                 className="action-button"
               >
-                Manage Students
+                Add New Admission
               </Button>
               <Button
                 variant="contained"
                 color="primary"
                 fullWidth
-                onClick={() => navigate('/admission-list')}
+                onClick={goToList}
                 startIcon={<FaChartPie />}
                 sx={{ bgcolor: '#0288d1', '&:hover': { bgcolor: '#01579b' } }}
                 className="action-button"
@@ -467,20 +470,6 @@ const Dashboard = () => {
               >
                 Logout
               </Button>
-              <Button
-                variant="contained"
-                color="secondary"
-                fullWidth
-                onClick={() => navigate('/kaushal-Kendra-dashboard')}
-                startIcon={<FaUserGraduate />}
-                sx={{
-                  bgcolor: '#113f76ff',
-                  '&:hover': { bgcolor: '#113f76ff' },
-                }}
-                className="action-button"
-              >
-                Kaushal Kendra Dashboard
-              </Button>
             </Box>
           </Grid>
         </Grid>
@@ -489,4 +478,4 @@ const Dashboard = () => {
   );
 };
 
-export default Dashboard;
+export default DashboardKK;

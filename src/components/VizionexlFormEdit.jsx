@@ -71,6 +71,8 @@ export default function VizionexlFormEdit() {
     return today.toISOString().split('T')[0];
   };
 
+  const roundRupee = (value) => Math.round(parseFloat(value) || 0);
+
   const formatINR = (val) => {
     const num = parseFloat(val);
     if (isNaN(num)) return '₹0.00';
@@ -148,16 +150,18 @@ export default function VizionexlFormEdit() {
     if (!needsRecalculation) return;
 
     const selectedCourse = courses.find((c) => c.name === form.course);
-    const courseFee = selectedCourse ? parseFloat(selectedCourse.fee) : 0;
+    const courseFee = selectedCourse ? roundRupee(selectedCourse.fee) : 0;
     const discountPercent = parseFloat(form.discount) || 0;
-    const discountAmount = (courseFee * discountPercent) / 100;
-    const netAmount = courseFee - discountAmount;
-    const sgst = netAmount * 0.09;
-    const cgst = netAmount * 0.09;
-    const totalWithGst = Math.round(netAmount + sgst + cgst);
-    const feesPaid = installments.reduce(
-      (sum, inst) => sum + (parseFloat(inst.amount) || 0),
-      0
+    const discountAmount = roundRupee((courseFee * discountPercent) / 100);
+    const netAmount = roundRupee(courseFee - discountAmount);
+    const sgst = roundRupee(netAmount * 0.09);
+    const cgst = roundRupee(netAmount * 0.09);
+    const totalWithGst = roundRupee(netAmount + sgst + cgst);
+    const feesPaid = roundRupee(
+      installments.reduce(
+        (sum, inst) => sum + (parseFloat(inst.amount) || 0),
+        0
+      )
     );
     const feesRemaining = Math.max(0, totalWithGst - feesPaid);
 
@@ -196,6 +200,24 @@ export default function VizionexlFormEdit() {
   };
 
   const updateInstallment = (index, field, value) => {
+    if (field === 'amount') {
+      value = value.replace(/[^0-9.]/g, '');
+      const totalPaid = installments.reduce(
+        (sum, inst, i) =>
+          i === index
+            ? sum + (parseFloat(value) || 0)
+            : sum + (parseFloat(inst.amount) || 0),
+        0
+      );
+      if (roundRupee(totalPaid) > roundRupee(calcs.totalWithGst)) {
+        toast.error(
+          `Total installments (₹${roundRupee(
+            totalPaid
+          )}) cannot exceed total payable (₹${roundRupee(calcs.totalWithGst)})`
+        );
+        return;
+      }
+    }
     const updated = [...installments];
     updated[index][field] = value;
     setInstallments(updated);
@@ -244,19 +266,50 @@ export default function VizionexlFormEdit() {
       toast.error('Please enter Cheque Number and Bank Name');
       return;
     }
+    const calculatedFeesPaid = roundRupee(
+      installments.reduce(
+        (sum, inst) => sum + (parseFloat(inst.amount) || 0),
+        0
+      )
+    );
+    if (calculatedFeesPaid > calcs.totalWithGst) {
+      toast.error(
+        `Fees paid (₹${calculatedFeesPaid}) cannot exceed total payable amount (₹${calcs.totalWithGst})`
+      );
+      return;
+    }
+    if (installments.length === 0 && calculatedFeesPaid > 0) {
+      toast.error('Please add at least one installment for fees paid');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
       const payload = {
-        ...form,
+        name: form.name,
+        mobile: form.mobile,
+        email: form.email,
+        address: form.address,
+        idType: form.idType,
+        idNumber: form.idNumber,
+        course: form.course,
+        date: form.date,
         discount: parseFloat(form.discount) || 0,
-        totalWithGst: calcs.totalWithGst,
-        feesPaid: calcs.feesPaid,
-        feesRemaining: calcs.feesRemaining,
+        handedTo: form.handedTo,
+        remarks: form.remarks,
+        paymentMode: form.paymentMode,
+        upiTransactionId:
+          form.paymentMode === 'PhonePe' ? form.upiTransactionId : '',
+        upiPaidTo: form.paymentMode === 'PhonePe' ? form.upiPaidTo : '',
+        chequeNumber: form.paymentMode === 'Cheque' ? form.chequeNumber : '',
+        bankName: form.paymentMode === 'Cheque' ? form.bankName : '',
+        duration: form.duration,
+        durationUnit: form.durationUnit,
         installments: installments.map((inst) => ({
-          ...inst,
-          amount: parseFloat(inst.amount) || 0,
+          date: inst.date,
+          amount: roundRupee(inst.amount),
         })),
+        feesPaid: calculatedFeesPaid,
       };
       console.log('Submitting payload:', JSON.stringify(payload, null, 2));
       const response = await axios.put(`${BASE_URL}/vizionexl/${id}`, payload);
@@ -267,7 +320,6 @@ export default function VizionexlFormEdit() {
       console.error('Error updating admission:', err);
       const errorMessage =
         err.response?.data?.message || 'Failed to update admission';
-      // Display specific validation errors if available
       if (err.response?.data?.errors?.length) {
         const validationErrors = err.response.data.errors
           .map((err) => `${err.field}: ${err.message}`)
@@ -435,6 +487,7 @@ export default function VizionexlFormEdit() {
               <option value="Aadhar">Aadhar</option>
               <option value="PAN">PAN</option>
               <option value="Passport">Passport</option>
+              <option value="Voter ID">Voter ID</option>
             </select>
           </div>
           <div className="col-12 col-md-3">
@@ -446,7 +499,6 @@ export default function VizionexlFormEdit() {
               className="form-control"
               value={form.idNumber}
               onChange={handleChange}
-              required
             />
           </div>
           <div className="col-12 col-md-3">

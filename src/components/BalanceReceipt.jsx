@@ -1,4 +1,6 @@
 import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
+import vizionexlLogo from '../assets/vizionexlLogo.png';
 
 const InvoiceType1 = (doc, row, netAmount, sgst, cgst, tableConfig) => {
   // Set document properties
@@ -50,7 +52,7 @@ const InvoiceType1 = (doc, row, netAmount, sgst, cgst, tableConfig) => {
   doc.text('Vizionexl', 105, 150, { angle: 45 });
 
   // Invoice items table
-  doc.autoTable({
+  autoTable(doc, {
     startY: 90,
     head: [['DESCRIPTION', 'PRICE', 'TOTAL']],
     body: [
@@ -93,7 +95,7 @@ const InvoiceType1 = (doc, row, netAmount, sgst, cgst, tableConfig) => {
         data.column.index === 2 &&
         data.row.index >= 5
       ) {
-        doc.setFontStyle('bold');
+        doc.setFont('helvetica', 'bold'); 
         doc.setTextColor(40, 40, 40);
       }
     },

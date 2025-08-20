@@ -1,9 +1,11 @@
 import axios from 'axios';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   FaArrowLeft,
   FaBook,
   FaCalendarAlt,
+  FaChevronLeft,
+  FaChevronRight,
   FaClock,
   FaEnvelope,
   FaFileAlt,
@@ -16,11 +18,13 @@ import {
   FaPhone,
   FaPlus,
   FaPlusCircle,
+  FaPrint,
   FaRegIdCard,
   FaTrash,
   FaUser,
 } from 'react-icons/fa';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useReactToPrint } from 'react-to-print';
 import vizionexlLogo from '../assets/vizionexlLogo.png';
 
 const BASE_URL = import.meta.env.VITE_BASE_URL || 'http://localhost:5000/api';
@@ -59,32 +63,45 @@ export default function VizionexlForm() {
     feesRemaining: 0,
   });
   const [installments, setInstallments] = useState([]);
+  const [tempInstallments, setTempInstallments] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [needsRecalculation, setNeedsRecalculation] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage] = useState(5);
 
   const navigate = useNavigate();
   const location = useLocation();
+  const printRef = useRef();
 
   const getTodayISO = () => {
     const today = new Date();
     return today.toISOString().split('T')[0];
   };
 
-  const roundRupee = (value) => {
-    const decimal = value - Math.floor(value);
-    return decimal >= 0.39 ? Math.ceil(value) : Math.floor(value);
-  };
+  const roundRupee = (value) => Math.round(parseFloat(value) || 0);
 
   const formatINR = (val) => {
     const num = parseFloat(val);
-    if (isNaN(num)) return '₹0.00';
+    if (isNaN(num)) return '₹0';
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
     }).format(num);
   };
+
+  const handlePrint = useReactToPrint({
+    content: () => printRef.current,
+    pageStyle: `
+      @page { size: A4; margin: 10mm; }
+      @media print {
+        body { -webkit-print-color-adjust: exact; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background-color: #f8f9fa !important; }
+      }
+    `,
+  });
 
   useEffect(() => {
     const now = new Date();
@@ -108,6 +125,7 @@ export default function VizionexlForm() {
         localStorage.setItem('courses', JSON.stringify(data));
         if (data.length && !form.course) {
           setForm((p) => ({ ...p, course: data[0].name }));
+          setNeedsRecalculation(true);
         }
       } catch (err) {
         console.error('Error fetching courses', err);
@@ -122,21 +140,22 @@ export default function VizionexlForm() {
     if (!needsRecalculation) return;
 
     const selectedCourse = courses.find((c) => c.name === form.course);
-    const courseFee = selectedCourse ? parseFloat(selectedCourse.fee) : 0;
+    const courseFee = selectedCourse ? roundRupee(selectedCourse.fee) : 0;
     const discountPercent = parseFloat(form.discount) || 0;
-    const discountAmount = (courseFee * discountPercent) / 100;
-    const netAmount = courseFee - discountAmount;
-    const sgst = netAmount * 0.09;
-    const cgst = netAmount * 0.09;
+    const discountAmount = roundRupee((courseFee * discountPercent) / 100);
+    const netAmount = roundRupee(courseFee - discountAmount);
+    const sgst = roundRupee(netAmount * 0.09);
+    const cgst = roundRupee(netAmount * 0.09);
     const totalWithGst = roundRupee(netAmount + sgst + cgst);
-
-    const paid = installments.reduce(
-      (sum, inst) => sum + (parseFloat(inst.amount) || 0),
-      0
+    const feesPaid = roundRupee(
+      installments.reduce(
+        (sum, inst) => sum + (parseFloat(inst.amount) || 0),
+        0
+      )
     );
-    const feesRemaining = Math.max(0, totalWithGst - paid);
+    const feesRemaining = Math.max(0, totalWithGst - feesPaid);
 
-    setForm((p) => ({ ...p, feesPaid: paid.toFixed(2) }));
+    setForm((p) => ({ ...p, feesPaid: feesPaid.toString() }));
     setCalcs({
       courseFee,
       discountAmount,
@@ -162,32 +181,95 @@ export default function VizionexlForm() {
     if (name === 'upiTransactionId') value = value.replace(/[^0-9A-Za-z]/g, '');
     if (name === 'duration') value = value.replace(/[^0-9]/g, '');
     setForm((p) => ({ ...p, [name]: value }));
-  };
-
-  const addInstallment = () => {
-    setInstallments((prev) => [...prev, { date: getTodayISO(), amount: '' }]);
-  };
-
-  const updateInstallment = (index, field, value) => {
-    const updated = [...installments];
-    updated[index][field] = value;
-    setInstallments(updated);
-  };
-
-  const handleInstallmentKeyPress = (e, index, field) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
+    if (name === 'course' || name === 'discount') {
       setNeedsRecalculation(true);
     }
   };
 
-  const removeInstallment = (index) => {
-    setInstallments((prev) => prev.filter((_, i) => i !== index));
+  const addInstallment = () => {
+    setInstallments((prev) => [...prev, { date: getTodayISO(), amount: '' }]);
+    setTempInstallments((prev) => [
+      ...prev,
+      { date: getTodayISO(), amount: '' },
+    ]);
     setNeedsRecalculation(true);
   };
 
+  const updateInstallment = (index, field, value) => {
+    if (field === 'amount') {
+      value = value.replace(/[^0-9.]/g, '');
+    }
+    const updated = [...tempInstallments];
+    updated[index] = { ...updated[index], [field]: value };
+    setTempInstallments(updated);
+  };
+
+  const handleInstallmentKeyPress = (e, index, field) => {
+    if (field !== 'amount') {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        setInstallments((prev) =>
+          prev.map((inst, i) =>
+            i === index
+              ? { ...inst, [field]: tempInstallments[index][field] }
+              : inst
+          )
+        );
+      }
+      return;
+    }
+
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const tempAmount = parseFloat(tempInstallments[index].amount) || 0;
+      const totalPaid = installments.reduce(
+        (sum, inst, i) =>
+          i === index ? sum + tempAmount : sum + (parseFloat(inst.amount) || 0),
+        0
+      );
+      if (totalPaid > calcs.totalWithGst) {
+        alert(
+          `Total installments (₹${roundRupee(
+            totalPaid
+          )}) cannot exceed total payable (₹${calcs.totalWithGst})`
+        );
+        return;
+      }
+      setInstallments((prev) =>
+        prev.map((inst, i) =>
+          i === index
+            ? { ...inst, amount: tempInstallments[index].amount }
+            : inst
+        )
+      );
+      setNeedsRecalculation(true);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setTempInstallments((prev) =>
+        prev.map((inst, i) =>
+          i === index
+            ? { ...inst, amount: installments[index]?.amount || '' }
+            : inst
+        )
+      );
+    }
+    // Backspace is handled by default input behavior
+  };
+
+  const removeInstallment = (index) => {
+    setInstallments((prev) => prev.filter((_, i) => i !== index));
+    setTempInstallments((prev) => prev.filter((_, i) => i !== index));
+    setNeedsRecalculation(true);
+    if ((installments.length - 1) % rowsPerPage === 0) {
+      setCurrentPage(Math.max(1, currentPage - 1));
+    }
+  };
+
   const getStatus = () => {
-    if (calcs.totalWithGst === 0)
+    const hasConfirmedAmount = installments.some(
+      (inst) => parseFloat(inst.amount) > 0
+    );
+    if (!hasConfirmedAmount)
       return { text: 'Empty (Add amount)', color: 'gray' };
     if (calcs.feesRemaining === 0) return { text: 'Full Paid', color: 'green' };
     if (calcs.feesRemaining < calcs.totalWithGst)
@@ -201,15 +283,48 @@ export default function VizionexlForm() {
       alert('Enter a valid 10-digit Indian mobile number');
       return;
     }
+    if (installments.length === 0 && parseFloat(form.feesPaid) > 0) {
+      alert('Please add at least one installment for fees paid');
+      return;
+    }
+    const calculatedFeesPaid = roundRupee(
+      installments.reduce(
+        (sum, inst) => sum + (parseFloat(inst.amount) || 0),
+        0
+      )
+    );
+    if (calculatedFeesPaid > calcs.totalWithGst) {
+      alert(
+        `Fees paid (₹${calculatedFeesPaid}) cannot exceed total payable amount (₹${calcs.totalWithGst})`
+      );
+      return;
+    }
     setIsSubmitting(true);
     try {
       const payload = {
-        ...form,
+        name: form.name,
+        mobile: form.mobile,
+        email: form.email,
+        address: form.address,
+        idType: form.idType,
+        idNumber: form.idNumber,
+        course: form.course,
+        date: form.date,
         discount: parseFloat(form.discount) || 0,
-        totalWithGst: calcs.totalWithGst,
+        feesPaid: calculatedFeesPaid,
+        handedTo: form.handedTo,
+        remarks: form.remarks,
+        paymentMode: form.paymentMode,
+        upiTransactionId:
+          form.paymentMode === 'PhonePe' ? form.upiTransactionId : '',
+        upiPaidTo: form.paymentMode === 'PhonePe' ? form.upiPaidTo : '',
+        chequeNumber: form.paymentMode === 'Cheque' ? form.chequeNumber : '',
+        bankName: form.paymentMode === 'Cheque' ? form.bankName : '',
+        duration: form.duration,
+        durationUnit: form.durationUnit,
         installments: installments.map((inst) => ({
-          ...inst,
-          amount: parseFloat(inst.amount) || 0,
+          date: inst.date,
+          amount: roundRupee(inst.amount),
         })),
       };
       const res = await axios.post(`${BASE_URL}/vizionexl`, payload);
@@ -237,24 +352,192 @@ export default function VizionexlForm() {
           durationUnit: 'months',
         });
         setInstallments([]);
+        setTempInstallments([]);
+        setCurrentPage(1);
+        navigate('/admission-list');
       }
     } catch (err) {
-      console.error(err);
+      console.error('Submission error:', err);
       alert(err.response?.data?.message || 'Error saving registration');
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const indexOfLastRow = currentPage * rowsPerPage;
+  const indexOfFirstRow = indexOfLastRow - rowsPerPage;
+  const currentRows = tempInstallments.slice(indexOfFirstRow, indexOfLastRow);
+  const totalPages = Math.ceil(tempInstallments.length / rowsPerPage);
+
+  const paginate = (pageNumber) => setCurrentPage(pageNumber);
+
   const status = getStatus();
 
   return (
-    <div className="p-3" style={{ background: '#fff', color: '#000' }}>
+    <div
+      className="container-fluid p-3"
+      style={{ maxWidth: '100vw', overflowX: 'hidden' }}
+    >
       <style>{`
         input[type=number]::-webkit-outer-spin-button,
         input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
         input[type=number] { -moz-appearance: textfield; }
+        .installment-table-container {
+          max-height: 400px;
+          overflow-y: auto;
+        }
+        .table-responsive {
+          overflow-x: auto;
+        }
+        .print-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .print-table th, .print-table td {
+          border: 1px solid #ddd;
+          padding: 8px;
+          text-align: left;
+        }
+        .print-table th {
+          background-color: #f2f2f2;
+        }
       `}</style>
+
+      <div style={{ display: 'none' }}>
+        <div ref={printRef} className="p-4">
+          <div className="text-center mb-4">
+            <h2>Vizionexl Technologies</h2>
+            <h4>Registration Details</h4>
+          </div>
+
+          <table className="print-table mb-4">
+            <thead>
+              <tr>
+                <th colSpan="2" style={{ backgroundColor: '#f8f9fa' }}>
+                  Student Information
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <strong>Name:</strong>
+                </td>
+                <td>{form.name}</td>
+              </tr>
+              <tr>
+                <td>
+                  <strong>Mobile:</strong>
+                </td>
+                <td>{form.mobile}</td>
+              </tr>
+              <tr>
+                <td>
+                  <strong>Course:</strong>
+                </td>
+                <td>{form.course}</td>
+              </tr>
+              <tr>
+                <td>
+                  <strong>Date:</strong>
+                </td>
+                <td>{form.date}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <table className="print-table mb-4">
+            <thead>
+              <tr>
+                <th colSpan="2" style={{ backgroundColor: '#f8f9fa' }}>
+                  Payment Details
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <strong>Course Fee:</strong>
+                </td>
+                <td>{formatINR(calcs.courseFee)}</td>
+              </tr>
+              {form.discount > 0 && (
+                <tr>
+                  <td>
+                    <strong>Discount ({form.discount}%):</strong>
+                  </td>
+                  <td>- {formatINR(calcs.discountAmount)}</td>
+                </tr>
+              )}
+              <tr>
+                <td>
+                  <strong>Net Amount:</strong>
+                </td>
+                <td>{formatINR(calcs.netAmount)}</td>
+              </tr>
+              <tr>
+                <td>
+                  <strong>SGST (9%):</strong>
+                </td>
+                <td>{formatINR(calcs.sgst)}</td>
+              </tr>
+              <tr>
+                <td>
+                  <strong>CGST (9%):</strong>
+                </td>
+                <td>{formatINR(calcs.cgst)}</td>
+              </tr>
+              <tr style={{ backgroundColor: '#f8f9fa' }}>
+                <td>
+                  <strong>Total with GST:</strong>
+                </td>
+                <td>{formatINR(calcs.totalWithGst)}</td>
+              </tr>
+              <tr>
+                <td>
+                  <strong>Fees Paid:</strong>
+                </td>
+                <td>{formatINR(form.feesPaid)}</td>
+              </tr>
+              <tr
+                style={{
+                  backgroundColor:
+                    calcs.feesRemaining === 0 ? '#e6ffed' : '#fff3cd',
+                }}
+              >
+                <td>
+                  <strong>Fees Remaining:</strong>
+                </td>
+                <td>{formatINR(calcs.feesRemaining)}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          {installments.length > 0 && (
+            <table className="print-table">
+              <thead>
+                <tr>
+                  <th colSpan="2" style={{ backgroundColor: '#f8f9fa' }}>
+                    Installments
+                  </th>
+                </tr>
+                <tr>
+                  <th>Date</th>
+                  <th>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {installments.map((inst, i) => (
+                  <tr key={i}>
+                    <td>{inst.date}</td>
+                    <td>{formatINR(inst.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
 
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div className="text-center">
@@ -282,6 +565,14 @@ export default function VizionexlForm() {
           >
             <FaArrowLeft className="me-1" />
             Dashboard
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary d-flex align-items-center"
+            onClick={handlePrint}
+          >
+            <FaPrint className="me-1" />
+            Print
           </button>
         </div>
       </div>
@@ -443,7 +734,6 @@ export default function VizionexlForm() {
           </div>
         </div>
 
-        {/* Payment mode specific fields */}
         {form.paymentMode === 'PhonePe' && (
           <div className="row g-2 mt-2">
             <div className="col-12 col-md-4">
@@ -507,7 +797,6 @@ export default function VizionexlForm() {
           </div>
         )}
 
-        {/* Bottom row fields */}
         <div className="row g-2 mt-2">
           <div className="col-12 col-md-3">
             <label>
@@ -579,65 +868,143 @@ export default function VizionexlForm() {
             </button>
           </div>
 
-          {installments.length > 0 && (
-            <div className="table-responsive">
-              <table className="table table-sm table-bordered">
-                <thead className="table-light">
-                  <tr>
-                    <th width="40%">Date</th>
-                    <th width="40%">Amount</th>
-                    <th width="20%">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {installments.map((inst, i) => (
-                    <tr key={i}>
-                      <td>
-                        <input
-                          type="date"
-                          className="form-control form-control-sm"
-                          value={inst.date}
-                          onChange={(e) =>
-                            updateInstallment(i, 'date', e.target.value)
-                          }
-                          onKeyPress={(e) =>
-                            handleInstallmentKeyPress(e, i, 'date')
-                          }
-                          max={getTodayISO()}
-                        />
-                      </td>
-                      <td>
-                        <div className="input-group input-group-sm">
-                          <span className="input-group-text">₹</span>
-                          <input
-                            type="number"
-                            className="form-control"
-                            placeholder="Amount"
-                            value={inst.amount}
-                            onChange={(e) =>
-                              updateInstallment(i, 'amount', e.target.value)
-                            }
-                            onKeyPress={(e) =>
-                              handleInstallmentKeyPress(e, i, 'amount')
-                            }
-                            inputMode="numeric"
-                            step="any"
-                          />
-                        </div>
-                      </td>
-                      <td className="text-center">
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-danger"
-                          onClick={() => removeInstallment(i)}
-                        >
-                          <FaTrash />
-                        </button>
-                      </td>
+          {tempInstallments.length > 0 && (
+            <div className="installment-table-container">
+              <div className="table-responsive">
+                <table className="table table-sm table-bordered">
+                  <thead className="table-light">
+                    <tr>
+                      <th width="40%">Date</th>
+                      <th width="40%">Amount</th>
+                      <th width="20%">Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {currentRows.map((inst, i) => {
+                      const globalIndex = indexOfFirstRow + i;
+                      return (
+                        <tr key={globalIndex}>
+                          <td>
+                            <input
+                              type="date"
+                              className="form-control form-control-sm"
+                              value={inst.date}
+                              onChange={(e) =>
+                                updateInstallment(
+                                  globalIndex,
+                                  'date',
+                                  e.target.value
+                                )
+                              }
+                              onKeyPress={(e) =>
+                                handleInstallmentKeyPress(
+                                  e,
+                                  globalIndex,
+                                  'date'
+                                )
+                              }
+                              max={getTodayISO()}
+                            />
+                          </td>
+                          <td>
+                            <div className="input-group input-group-sm">
+                              <span className="input-group-text">₹</span>
+                              <input
+                                type="number"
+                                className="form-control"
+                                placeholder="Amount"
+                                value={inst.amount}
+                                onChange={(e) =>
+                                  updateInstallment(
+                                    globalIndex,
+                                    'amount',
+                                    e.target.value
+                                  )
+                                }
+                                onKeyPress={(e) =>
+                                  handleInstallmentKeyPress(
+                                    e,
+                                    globalIndex,
+                                    'amount'
+                                  )
+                                }
+                                inputMode="numeric"
+                                step="any"
+                              />
+                            </div>
+                          </td>
+                          <td className="text-center">
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline-danger"
+                              onClick={() => removeInstallment(globalIndex)}
+                            >
+                              <FaTrash />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {tempInstallments.length > rowsPerPage && (
+                <div className="d-flex justify-content-between align-items-center mt-2">
+                  <div>
+                    Showing {indexOfFirstRow + 1} to{' '}
+                    {Math.min(indexOfLastRow, tempInstallments.length)} of{' '}
+                    {tempInstallments.length} entries
+                  </div>
+                  <nav>
+                    <ul className="pagination pagination-sm mb-0">
+                      <li
+                        className={`page-item ${
+                          currentPage === 1 ? 'disabled' : ''
+                        }`}
+                      >
+                        <button
+                          className="page-link"
+                          onClick={() => paginate(currentPage - 1)}
+                          disabled={currentPage === 1}
+                        >
+                          <FaChevronLeft size={12} />
+                        </button>
+                      </li>
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                        (number) => (
+                          <li
+                            key={number}
+                            className={`page-item ${
+                              currentPage === number ? 'active' : ''
+                            }`}
+                          >
+                            <button
+                              className="page-link"
+                              onClick={() => paginate(number)}
+                            >
+                              {number}
+                            </button>
+                          </li>
+                        )
+                      )}
+                      <li
+                        className={`page-item ${
+                          currentPage === totalPages ? 'disabled' : ''
+                        }`}
+                      >
+                        <button
+                          className="page-link"
+                          onClick={() => paginate(currentPage + 1)}
+                          disabled={currentPage === totalPages}
+                        >
+                          <FaChevronRight size={12} />
+                        </button>
+                      </li>
+                    </ul>
+                  </nav>
+                </div>
+              )}
             </div>
           )}
         </div>

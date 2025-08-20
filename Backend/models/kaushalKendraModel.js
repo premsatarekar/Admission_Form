@@ -1,3 +1,4 @@
+import { format } from 'date-fns';
 import db from '../config/db.js';
 
 export const createKaushalKendra = (data, callback) => {
@@ -13,7 +14,7 @@ export const createKaushalKendra = (data, callback) => {
     data.idType,
     data.idNumber,
     data.course,
-    data.registrationPaid ? 1 : 0, 
+    data.registrationPaid ? 1 : 0,
     parseFloat(data.amountPaid) || 0,
     parseFloat(data.feesRemaining) || 0,
     data.handedTo,
@@ -38,9 +39,22 @@ export const getKaushalKendra = async () => {
   console.log('Executing SQL:', sql);
 
   try {
-    const results = await db.query(sql);
-    console.log('Query results:', results);
-    return results;
+    const [rows] = await db.query(sql);
+    const processedData = rows.map((row) => {
+      const amountPaid = parseFloat(row.amountPaid) || 0;
+      const feesRemaining = parseFloat(row.feesRemaining) || 0;
+      let status = 'Pending';
+      if (feesRemaining === 0 && amountPaid > 0) status = 'Full Paid';
+      else if (amountPaid > 0) status = 'Partial Paid';
+
+      return {
+        ...row,
+        status,
+        date: format(new Date(row.date), 'yyyy-MM-dd'), // Ensure consistent date format
+      };
+    });
+    console.log('Query results:', processedData);
+    return processedData;
   } catch (error) {
     console.error('Database query error:', error);
     throw error;
@@ -57,8 +71,22 @@ export const getKaushalKendraById = (id, callback) => {
       return callback(error);
     }
 
-    console.log('Query results:', results);
-    callback(null, results);
+    const processedResults = results.map((row) => {
+      const amountPaid = parseFloat(row.amountPaid) || 0;
+      const feesRemaining = parseFloat(row.feesRemaining) || 0;
+      let status = 'Pending';
+      if (feesRemaining === 0 && amountPaid > 0) status = 'Full Paid';
+      else if (amountPaid > 0) status = 'Partial Paid';
+
+      return {
+        ...row,
+        status,
+        date: format(new Date(row.date), 'yyyy-MM-dd'), // Ensure consistent date format
+      };
+    });
+
+    console.log('Query results:', processedResults);
+    callback(null, processedResults);
   });
 };
 
@@ -75,7 +103,7 @@ export const updateKaushalKendra = (id, data, callback) => {
     data.idType,
     data.idNumber,
     data.course,
-    data.registrationPaid ? 1 : 0, // Convert boolean to integer
+    data.registrationPaid ? 1 : 0,
     parseFloat(data.amountPaid) || 0,
     parseFloat(data.feesRemaining) || 0,
     data.handedTo,

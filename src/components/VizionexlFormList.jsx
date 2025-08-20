@@ -160,7 +160,24 @@ export default function VizionexlFormList() {
     if (type === 'balance') {
       BalanceReceipt(doc, row, row.netAmount, row.sgst, row.cgst, tableConfig);
     } else {
-      InvoiceType1(doc, row, row.netAmount, row.sgst, row.cgst, tableConfig);
+      autoTable(doc, {
+        head: [['Description', 'Price', 'Total']],
+        body: [
+          ['Course Fee', formatINR(row.courseFee), formatINR(row.courseFee)],
+          [
+            'Discount',
+            `-${formatINR(row.discountAmount)}`,
+            `-${formatINR(row.discountAmount)}`,
+          ],
+          ['Net Amount', formatINR(row.netAmount), formatINR(row.netAmount)],
+          ['SGST (9%)', formatINR(row.sgst), formatINR(row.sgst)],
+          ['CGST (9%)', formatINR(row.cgst), formatINR(row.cgst)],
+          ['Subtotal', '', formatINR(row.totalWithGst)],
+          ['Amount Paid', '', formatINR(row.feesPaid)],
+          ['Balance Due', '', formatINR(row.feesRemaining)],
+        ],
+        ...tableConfig,
+      });
     }
 
     const dateStr = new Date().toISOString().split('T')[0];
@@ -168,28 +185,7 @@ export default function VizionexlFormList() {
   };
 
   const previewPDF = (row, type = 'type1') => {
-    const doc = new jsPDF();
-    doc.addImage(vizionexlLogo, 'PNG', 15, 10, 40, 20);
-    doc.setFontSize(16).text('Vizionexl Technologies', 60, 20);
-    doc.setFontSize(10).text('Registration Invoice', 60, 28);
-
-    doc.setFontSize(40);
-    doc.setTextColor(200, 200, 200);
-    doc.text('Vizionexl', 105, 150, { angle: 45 });
-
-    const tableConfig = {
-      startY: 40,
-      styles: { fontSize: 8, halign: 'center', valign: 'middle' },
-    };
-
-    if (type === 'balance') {
-      BalanceReceipt(doc, row, row.netAmount, row.sgst, row.cgst, tableConfig);
-    } else {
-      InvoiceType1(doc, row, row.netAmount, row.sgst, row.cgst, tableConfig);
-    }
-
-    const pdfDataUri = doc.output('datauristring');
-    setPreviewRow({ ...row, pdfDataUri, type });
+    setPreviewRow(row);
   };
 
   const generateFullListPDF = () => {
@@ -585,14 +581,15 @@ export default function VizionexlFormList() {
                 Close
               </button>
             </div>
-            <iframe
-              src={previewRow.pdfDataUri}
-              style={{ width: '100%', height: '500px', border: 'none' }}
-              title="Invoice Preview"
-            />
+            <div id="invoice-preview">
+              <InvoiceType1
+                row={previewRow}
+                onClose={() => setPreviewRow(null)}
+              />
+            </div>
             <button
               className="btn btn-sm btn-info mt-2"
-              onClick={() => generatePDF(previewRow, previewRow.type)}
+              onClick={() => generatePDF(previewRow, 'type1')}
             >
               <FaDownload /> Download
             </button>
@@ -822,13 +819,6 @@ export default function VizionexlFormList() {
                             title="Preview Invoice"
                           >
                             <FaFileInvoice size={10} />
-                          </button>
-                          <button
-                            className="btn btn-sm btn-info"
-                            onClick={() => generatePDF(row, 'balance')}
-                            title="Download Balance Receipt"
-                          >
-                            <FaDownload size={10} />
                           </button>
                           <button
                             className={`btn btn-sm ${

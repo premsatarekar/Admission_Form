@@ -12,7 +12,6 @@ export const createVizionexl = async (data) => {
       course,
       date,
       discount,
-      totalWithGst,
       feesPaid,
       handedTo,
       remarks,
@@ -30,6 +29,26 @@ export const createVizionexl = async (data) => {
     try {
       await connection.beginTransaction();
 
+      // Fetch course fee from courses table
+      const [courses] = await connection.query(
+        `SELECT fee FROM courses WHERE name = ?`,
+        [course]
+      );
+      if (!courses[0]) {
+        throw new Error(`Course "${course}" not found in the database`);
+      }
+      const courseFee = Math.round(parseFloat(courses[0].fee) || 0);
+
+      // Perform forward calculations
+      const discountPercent = parseFloat(discount) || 0;
+      const discountAmount = Math.round((courseFee * discountPercent) / 100);
+      const netAmount = Math.round(courseFee - discountAmount);
+      const sgst = Math.round(netAmount * 0.09);
+      const cgst = Math.round(netAmount * 0.09);
+      const totalWithGst = Math.round(netAmount + sgst + cgst);
+      const calculatedFeesPaid = Math.round(parseFloat(feesPaid) || 0);
+      const balanceAmount = Math.max(0, totalWithGst - calculatedFeesPaid);
+
       // Format date from DD/MM/YYYY to YYYY-MM-DD for MySQL
       const [day, month, year] = date.split('/');
       const mysqlDate = `${year}-${month}-${day}`;
@@ -37,11 +56,12 @@ export const createVizionexl = async (data) => {
       const sql = `
         INSERT INTO vizionexl_registrations 
         (full_name, phone_number, email, address, id_type, id_number, course_name, 
-         admission_date, discount_percent, course_fee, payment_mode, upi_transaction_id, 
-         upi_paid_to, cheque_number, bank_name, duration, duration_unit, handed_to, remarks, paid_amount)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         admission_date, discount_percent, course_fee, discount_amount, net_amount, 
+         sgst, cgst, total_fee, paid_amount, balance_amount, payment_mode, 
+         upi_transaction_id, upi_paid_to, cheque_number, bank_name, duration, 
+         duration_unit, handed_to, remarks)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
-      const courseFee = totalWithGst / 1.18 / (1 - (discount || 0) / 100);
       const values = [
         name,
         mobile,
@@ -51,8 +71,15 @@ export const createVizionexl = async (data) => {
         idNumber || null,
         course,
         mysqlDate,
-        discount || 0,
+        discountPercent,
         courseFee,
+        discountAmount,
+        netAmount,
+        sgst,
+        cgst,
+        totalWithGst,
+        calculatedFeesPaid,
+        balanceAmount,
         paymentMode || 'Cash',
         paymentMode === 'PhonePe' ? upiTransactionId : null,
         paymentMode === 'PhonePe' ? upiPaidTo : null,
@@ -64,7 +91,6 @@ export const createVizionexl = async (data) => {
         remarks
           ? `Handed to: ${handedTo}. ${remarks}`
           : `Handed to: ${handedTo}`,
-        parseFloat(feesPaid) || 0,
       ];
 
       const [result] = await connection.query(sql, values);
@@ -75,14 +101,22 @@ export const createVizionexl = async (data) => {
           connection.query(
             `INSERT INTO installments (registration_id, installment_date, amount)
              VALUES (?, ?, ?)`,
-            [registrationId, inst.date, parseFloat(inst.amount) || 0]
+            [
+              registrationId,
+              inst.date,
+              Math.round(parseFloat(inst.amount) || 0),
+            ]
           )
         );
         await Promise.all(installmentQueries);
       }
 
       await connection.commit();
-      return { insertId: registrationId };
+      return {
+        insertId: registrationId,
+        totalWithGst,
+        feesRemaining: balanceAmount,
+      };
     } catch (err) {
       await connection.rollback();
       throw err;
@@ -143,7 +177,6 @@ export const getVizionexl = async () => {
     return results.map((row) => {
       let parsedInstallments = [];
       try {
-        // Check if installments is already an array
         parsedInstallments = Array.isArray(row.installments)
           ? row.installments
           : row.installments
@@ -219,7 +252,6 @@ export const getVizionexlById = async (id) => {
     if (!results[0]) return null;
     let parsedInstallments = [];
     try {
-      // Check if installments is already an array
       parsedInstallments = Array.isArray(results[0].installments)
         ? results[0].installments
         : results[0].installments
@@ -253,7 +285,6 @@ export const updateVizionexl = async (id, data) => {
       course,
       date,
       discount,
-      totalWithGst,
       feesPaid,
       handedTo,
       remarks,
@@ -270,6 +301,26 @@ export const updateVizionexl = async (id, data) => {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
+
+      // Fetch course fee from courses table
+      const [courses] = await connection.query(
+        `SELECT fee FROM courses WHERE name = ?`,
+        [course]
+      );
+      if (!courses[0]) {
+        throw new Error(`Course "${course}" not found in the database`);
+      }
+      const courseFee = Math.round(parseFloat(courses[0].fee) || 0);
+
+      // Perform forward calculations
+      const discountPercent = parseFloat(discount) || 0;
+      const discountAmount = Math.round((courseFee * discountPercent) / 100);
+      const netAmount = Math.round(courseFee - discountAmount);
+      const sgst = Math.round(netAmount * 0.09);
+      const cgst = Math.round(netAmount * 0.09);
+      const totalWithGst = Math.round(netAmount + sgst + cgst);
+      const calculatedFeesPaid = Math.round(parseFloat(feesPaid) || 0);
+      const balanceAmount = Math.max(0, totalWithGst - calculatedFeesPaid);
 
       // Format date from DD/MM/YYYY to YYYY-MM-DD for MySQL
       const [day, month, year] = date.split('/');
@@ -288,6 +339,13 @@ export const updateVizionexl = async (id, data) => {
           admission_date = ?,
           discount_percent = ?,
           course_fee = ?,
+          discount_amount = ?,
+          net_amount = ?,
+          sgst = ?,
+          cgst = ?,
+          total_fee = ?,
+          paid_amount = ?,
+          balance_amount = ?,
           payment_mode = ?,
           upi_transaction_id = ?,
           upi_paid_to = ?,
@@ -296,11 +354,9 @@ export const updateVizionexl = async (id, data) => {
           duration = ?,
           duration_unit = ?,
           handed_to = ?,
-          remarks = ?,
-          paid_amount = ?
+          remarks = ?
         WHERE id = ?
       `;
-      const courseFee = totalWithGst / 1.18 / (1 - (discount || 0) / 100);
       const values = [
         name,
         mobile,
@@ -310,8 +366,15 @@ export const updateVizionexl = async (id, data) => {
         idNumber || null,
         course,
         mysqlDate,
-        discount || 0,
+        discountPercent,
         courseFee,
+        discountAmount,
+        netAmount,
+        sgst,
+        cgst,
+        totalWithGst,
+        calculatedFeesPaid,
+        balanceAmount,
         paymentMode || 'Cash',
         paymentMode === 'PhonePe' ? upiTransactionId : null,
         paymentMode === 'PhonePe' ? upiPaidTo : null,
@@ -323,7 +386,6 @@ export const updateVizionexl = async (id, data) => {
         remarks
           ? `Handed to: ${handedTo}. ${remarks}`
           : `Handed to: ${handedTo}`,
-        parseFloat(feesPaid) || 0,
         id,
       ];
 
@@ -341,7 +403,7 @@ export const updateVizionexl = async (id, data) => {
           connection.query(
             `INSERT INTO installments (registration_id, installment_date, amount)
              VALUES (?, ?, ?)`,
-            [id, inst.date, parseFloat(inst.amount) || 0]
+            [id, inst.date, Math.round(parseFloat(inst.amount) || 0)]
           )
         );
         await Promise.all(installmentQueries);

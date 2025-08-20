@@ -28,7 +28,7 @@ export const validateVizionexl = [
     .trim()
     .notEmpty()
     .withMessage('ID type is required')
-    .isIn(['Aadhar', 'PAN', 'Passport'])
+    .isIn(['Aadhar', 'PAN', 'Passport', 'Voter ID'])
     .withMessage('Invalid ID type'),
   body('idNumber')
     .optional()
@@ -45,11 +45,6 @@ export const validateVizionexl = [
     .optional()
     .isFloat({ min: 0, max: 100 })
     .withMessage('Discount must be between 0 and 100'),
-  body('totalWithGst')
-    .notEmpty()
-    .withMessage('Total with GST is required')
-    .isFloat({ min: 0 })
-    .withMessage('Total with GST must be a positive number'),
   body('feesPaid')
     .notEmpty()
     .withMessage('Fees paid is required')
@@ -122,9 +117,9 @@ export const addVizionexl = async (req, res) => {
       });
     }
 
-    const { course, totalWithGst, feesPaid, installments } = req.body;
+    const { course, feesPaid, installments } = req.body;
 
-    // Validate course exists
+    // Validate course exists and fetch course fee
     const [courses] = await db.query(
       `SELECT name, fee FROM courses WHERE name = ?`,
       [course]
@@ -135,19 +130,30 @@ export const addVizionexl = async (req, res) => {
         message: `Course "${course}" not found in the database`,
       });
     }
+    const courseFee = Math.round(parseFloat(courses[0].fee) || 0);
 
-    // Validate feesPaid against totalWithGst
-    const calculatedFeesPaid = installments.reduce(
-      (sum, inst) => sum + (parseFloat(inst.amount) || 0),
-      0
+    // Calculate financial values
+    const discountPercent = parseFloat(req.body.discount) || 0;
+    const discountAmount = Math.round((courseFee * discountPercent) / 100);
+    const netAmount = Math.round(courseFee - discountAmount);
+    const sgst = Math.round(netAmount * 0.09);
+    const cgst = Math.round(netAmount * 0.09);
+    const totalWithGst = Math.round(netAmount + sgst + cgst);
+
+    // Validate feesPaid against installments
+    const calculatedFeesPaid = Math.round(
+      installments.reduce(
+        (sum, inst) => sum + (parseFloat(inst.amount) || 0),
+        0
+      )
     );
-    if (parseFloat(feesPaid) !== calculatedFeesPaid) {
+    if (Math.round(parseFloat(feesPaid)) !== calculatedFeesPaid) {
       return res.status(400).json({
         success: false,
         message: `Fees paid (${feesPaid}) does not match the sum of installment amounts (${calculatedFeesPaid})`,
       });
     }
-    if (parseFloat(feesPaid) > parseFloat(totalWithGst)) {
+    if (parseFloat(feesPaid) > totalWithGst + 1) {
       return res.status(400).json({
         success: false,
         message: `Fees paid (${feesPaid}) cannot exceed total payable amount (${totalWithGst})`,
@@ -162,9 +168,13 @@ export const addVizionexl = async (req, res) => {
       data: {
         id: result.insertId,
         ...req.body,
-        feesRemaining: (
-          parseFloat(totalWithGst) - parseFloat(feesPaid)
-        ).toFixed(2),
+        totalWithGst,
+        feesRemaining: result.feesRemaining,
+        courseFee,
+        discountAmount,
+        netAmount,
+        sgst,
+        cgst,
       },
     });
   } catch (err) {
@@ -180,7 +190,6 @@ export const addVizionexl = async (req, res) => {
 export const fetchVizionexl = async (req, res) => {
   try {
     const results = await getVizionexl();
-
     res.json({
       success: true,
       data: results,
@@ -199,14 +208,12 @@ export const fetchVizionexl = async (req, res) => {
 export const fetchVizionexlById = async (req, res) => {
   try {
     const registration = await getVizionexlById(req.params.id);
-
     if (!registration) {
-      return res.status(404).json({
+      return res.status(400).json({
         success: false,
         message: 'Registration not found',
       });
     }
-
     res.json({
       success: true,
       data: registration,
@@ -235,9 +242,9 @@ export const updateVizionexlData = async (req, res) => {
       });
     }
 
-    const { course, totalWithGst, feesPaid, installments } = req.body;
+    const { course, feesPaid, installments } = req.body;
 
-    // Validate course exists
+    // Validate course exists and fetch course fee
     const [courses] = await db.query(
       `SELECT name, fee FROM courses WHERE name = ?`,
       [course]
@@ -248,28 +255,39 @@ export const updateVizionexlData = async (req, res) => {
         message: `Course "${course}" not found in the database`,
       });
     }
+    const courseFee = Math.round(parseFloat(courses[0].fee) || 0);
+
+    // Calculate financial values
+    const discountPercent = parseFloat(req.body.discount) || 0;
+    const discountAmount = Math.round((courseFee * discountPercent) / 100);
+    const netAmount = Math.round(courseFee - discountAmount);
+    const sgst = Math.round(netAmount * 0.09);
+    const cgst = Math.round(netAmount * 0.09);
+    const totalWithGst = Math.round(netAmount + sgst + cgst);
 
     // Validate registration exists
     const registration = await getVizionexlById(req.params.id);
     if (!registration) {
-      return res.status(404).json({
+      return res.status(400).json({
         success: false,
         message: 'Registration not found',
       });
     }
 
-    // Validate feesPaid against totalWithGst
-    const calculatedFeesPaid = installments.reduce(
-      (sum, inst) => sum + (parseFloat(inst.amount) || 0),
-      0
+    // Validate feesPaid against installments
+    const calculatedFeesPaid = Math.round(
+      installments.reduce(
+        (sum, inst) => sum + (parseFloat(inst.amount) || 0),
+        0
+      )
     );
-    if (parseFloat(feesPaid) !== calculatedFeesPaid) {
+    if (Math.round(parseFloat(feesPaid)) !== calculatedFeesPaid) {
       return res.status(400).json({
         success: false,
         message: `Fees paid (${feesPaid}) does not match the sum of installment amounts (${calculatedFeesPaid})`,
       });
     }
-    if (parseFloat(feesPaid) > parseFloat(totalWithGst)) {
+    if (parseFloat(feesPaid) > totalWithGst + 1) {
       return res.status(400).json({
         success: false,
         message: `Fees paid (${feesPaid}) cannot exceed total payable amount (${totalWithGst})`,
@@ -279,7 +297,7 @@ export const updateVizionexlData = async (req, res) => {
     const result = await updateVizionexl(req.params.id, req.body);
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({
+      return res.status(400).json({
         success: false,
         message: 'Registration not found',
       });
@@ -291,9 +309,13 @@ export const updateVizionexlData = async (req, res) => {
       data: {
         id: req.params.id,
         ...req.body,
-        feesRemaining: (
-          parseFloat(totalWithGst) - parseFloat(feesPaid)
-        ).toFixed(2),
+        totalWithGst,
+        feesRemaining: Math.max(0, totalWithGst - parseFloat(feesPaid)),
+        courseFee,
+        discountAmount,
+        netAmount,
+        sgst,
+        cgst,
       },
     });
   } catch (err) {
@@ -309,14 +331,12 @@ export const updateVizionexlData = async (req, res) => {
 export const removeVizionexl = async (req, res) => {
   try {
     const result = await deleteVizionexl(req.params.id);
-
     if (result.affectedRows === 0) {
-      return res.status(404).json({
+      return res.status(400).json({
         success: false,
         message: 'Registration not found',
       });
     }
-
     res.json({
       success: true,
       message: 'Registration deleted successfully',
@@ -335,12 +355,11 @@ export const markBalancePaid = async (req, res) => {
   try {
     const registration = await getVizionexlById(req.params.id);
     if (!registration) {
-      return res.status(404).json({
+      return res.status(400).json({
         success: false,
         message: 'Registration not found',
       });
     }
-
     const isPaid = registration.feesRemaining === 0;
     const newFeesPaid = isPaid ? 0 : registration.totalWithGst;
     const newInstallments = isPaid
@@ -351,21 +370,17 @@ export const markBalancePaid = async (req, res) => {
             amount: registration.totalWithGst,
           },
         ];
-
     const result = await updateVizionexl(req.params.id, {
       ...registration,
       feesPaid: newFeesPaid,
-      totalWithGst: registration.totalWithGst,
       installments: newInstallments,
     });
-
     if (result.affectedRows === 0) {
-      return res.status(404).json({
+      return res.status(400).json({
         success: false,
         message: 'Registration not found',
       });
     }
-
     res.json({
       success: true,
       message: `Balance marked as ${isPaid ? 'Balance Due' : 'Fully Paid'}`,
